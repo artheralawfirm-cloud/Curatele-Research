@@ -71,6 +71,8 @@ export default function App() {
   const [sortCol, setSortCol] = useState<keyof CaseData>("jumlah");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [donutFocus, setDonutFocus] = useState<"global" | "perkara">("global");
+  const [showWelcome, setShowWelcome] = useState<boolean>(true);
+  const [imgError, setImgError] = useState<boolean>(false);
 
   // Mouse tracking state for dynamic hover cards
   const [hoveredCase, setHoveredCase] = useState<CaseData | null>(null);
@@ -559,6 +561,71 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-300">
       
+      {/*════════════════ WELCOME PORTRAIT POPUP MODAL ════════════════*/}
+      <AnimatePresence>
+        {showWelcome && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-[10px] p-4 overflow-y-auto no-print"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 30 }}
+              transition={{ type: "spring", stiffness: 180, damping: 22 }}
+              className="relative w-full max-w-xl bg-slate-900 border border-slate-800/85 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col gap-6 text-center select-none"
+            >
+              {/* Decorative golden ambient lamp glow at the top */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-[1.5px] bg-gradient-to-r from-amber-500/20 via-amber-400 to-amber-500/20 blur-[1px] rounded-full" />
+              
+              {/* Security badge & system indicator */}
+              <div className="flex flex-col items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 tracking-widest leading-none">
+                  <Shield className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                  Sistem Keamanan Akses
+                </span>
+                <p className="text-[10px] font-extrabold tracking-widest text-slate-400 uppercase">
+                  Balai Harta Peninggalan – Kementerian Hukum RI
+                </p>
+              </div>
+
+              {/* Gambar Tim Wilayah II */}
+              <img src="/foto-tim.png" alt="Foto Tim Wilayah II" className="w-full max-w-md mx-auto rounded-lg shadow-lg mb-6" />
+
+              {/* Names block */}
+              <div className="space-y-3">
+                <h2 className="text-xl sm:text-2xl font-serif font-black text-white leading-tight">
+                  <span className="block text-amber-400 font-sans text-xs sm:text-sm font-black tracking-widest uppercase mb-1">Nama Tim</span>
+                  Tim Wilayah II BHP Medan <span className="block text-amber-400 font-sans text-lg font-black tracking-wide mt-1 animate-pulse">(Tim Kicau Mania)</span>
+                </h2>
+                
+                {/* Motto block */}
+                <div className="py-2.5 px-4 bg-slate-950/60 rounded-2xl border border-slate-800/80 inline-block mx-auto max-w-md w-full">
+                  <span className="text-[9px] text-slate-500 font-black tracking-widest uppercase block mb-1">Motto Perjuangan</span>
+                  <p className="text-base sm:text-lg font-serif italic text-amber-300 font-black tracking-wide leading-relaxed filter drop-shadow">
+                    "Jangan Tau Capek, Jangan Tau Malu"
+                  </p>
+                </div>
+              </div>
+
+              {/* Unlock Action Button */}
+              <button
+                onClick={() => {
+                  setShowWelcome(false);
+                  setToast("Akses diizinkan. Selamat menganalisis data!");
+                }}
+                className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition-all shadow-lg shadow-amber-500/10 active:scale-[0.985] cursor-pointer"
+              >
+                Lihat Chart
+              </button>
+
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Dynamic Hover Preview HUD Follower */}
       <FloatingPreview activeCase={hoveredCase} x={mousePos.x} y={mousePos.y} totalVolume={stats.total} />
 
@@ -879,7 +946,13 @@ export default function App() {
 
               {/* BAR CHART TAB CONTENT */}
               {tab === "chart" && (
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                <div className="p-5 flex-1 flex flex-col justify-between space-y-4 relative overflow-hidden">
+                  {/* WATERMARK ANTI-MALING */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden">
+                    <p className="text-slate-900/[0.06] dark:text-white/[0.04] font-sans font-black uppercase tracking-widest text-xl sm:text-2xl md:text-3xl text-center max-w-md rotate-[-12deg] leading-tight select-none">
+                      Penelitian Milik Wilayah II BHP Medan
+                    </p>
+                  </div>
                   {visibleBar.length === 0 ? (
                     <div className="text-center py-20 text-slate-400 space-y-2">
                       <HelpCircle className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto" />
@@ -1034,7 +1107,13 @@ export default function App() {
 
               {/* DATA TABLE TAB CONTENT */}
               {tab === "table" && (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto relative min-h-[300px]">
+                  {/* WATERMARK ANTI-MALING */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden">
+                    <p className="text-slate-900/[0.05] dark:text-white/[0.03] font-sans font-black uppercase tracking-widest text-xl sm:text-2xl md:text-3xl text-center max-w-md rotate-[-12deg] leading-tight select-none">
+                      Penelitian Milik Wilayah II BHP Medan
+                    </p>
+                  </div>
                   <table className="w-full text-left border-collapse text-xs md:text-sm">
                     <thead>
                       <tr className="bg-slate-900/10 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-black border-b border-slate-200 dark:border-slate-800">
