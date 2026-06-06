@@ -430,7 +430,7 @@ export default function App() {
         <div class="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div class="space-y-2 max-w-xl">
                 <span class="text-[10px] font-black tracking-widest text-indigo-600 uppercase">Eksekutif Analitis Dashboard</span>
-                <h1 class="text-2xl sm:text-3xl font-serif font-black text-slate-950 leading-tight">Analitis Intervensi Preventif Balai Harta Peninggalan</h1>
+                <h1 class="text-2xl sm:text-3xl font-serif font-black text-slate-950 leading-tight">Peran BHP sebagai Pengampu Pengawas dalam Mitigasi Sengketa Kewarisan Nasional.</h1>
                 <p class="text-xs text-slate-500 font-medium">Laporan visualisasi data perkara perdata yang dimitigasi preventif di hulu melalui revitalisasi fungsi Balai Harta Peninggalan (BHP) sebagai Pengampu Pengawas di Indonesia.</p>
             </div>
             
@@ -665,7 +665,7 @@ export default function App() {
                 </span>
               </div>
               <h1 className="font-serif font-black text-xl md:text-2xl lg:text-3xl text-white tracking-tight leading-tight">
-                Peran <span className="text-amber-400 underline decoration-amber-500/50 underline-offset-4">Balai Harta Peninggalan</span> sebagai Pengampu Pengawas
+                Peran <span className="text-amber-400 underline decoration-amber-500/50 underline-offset-4">BHP</span> sebagai Pengampu Pengawas dalam Mitigasi Sengketa Kewarisan Nasional.
                 <span className="block text-slate-300 font-sans text-sm md:text-base font-normal mt-1 max-w-2xl leading-relaxed">
                   Mitigasi preventif di hulu menjamin hak perdata subjek rentan serta mereduksi hingga 80% sengketa waris perdata di meja hijau (hilir).
                 </span>
