@@ -1,0 +1,89 @@
+{
+  "voice": "Sulafat",
+  "model": "gemini-3.1-flash-tts-preview",
+  "style": "Gaya: narator video tutorial yang hangat, ramah, dan jelas. Logat Indonesia baku yang netral dan natural, seperti penyiar Indonesia. Tempo sedang dan santai. Istilah seperti username, password, PDF, Google Doc, dan Drive diucapkan seperti orang Indonesia biasa mengucapkannya. Beri jeda hening sekitar dua detik di antara setiap paragraf.",
+  "segments": [
+    {
+      "id": "00_pembuka",
+      "start": 0.0,
+      "end": 5.0,
+      "text": "Halo, selamat datang di tutorial aplikasi Dokumen Penyumpahan, Balai Harta Peninggalan Medan."
+    },
+    {
+      "id": "01_masuk",
+      "start": 5.0,
+      "end": 20.0,
+      "text": "Langkah pertama, buka aplikasinya melalui tautan: bit titik el-ye, garis miring, dokumensumpah. Setelah itu, masukkan username dan password Anda, lalu klik Masuk."
+    },
+    {
+      "id": "02_beranda",
+      "start": 20.0,
+      "end": 30.0,
+      "text": "Setelah masuk, Anda akan langsung melihat ringkasan berkas. Di sebelah kiri, ada menu Daftar Berkas, Berkas Baru, Jadwal Sumpah, dan menu khusus Admin Utama."
+    },
+    {
+      "id": "03_berkas",
+      "start": 30.0,
+      "end": 42.6,
+      "text": "Untuk membuat berkas, klik Berkas Baru. Lalu, pilih jenis penyumpahannya: Pengampuan untuk orang dewasa, atau Perwalian untuk anak yang masih di bawah umur."
+    },
+    {
+      "id": "04_upload",
+      "start": 42.6,
+      "end": 53.0,
+      "text": "Selanjutnya, seret atau klik kotak unggah untuk memilih PDF penetapan pengadilan. Aplikasi akan membaca isinya, dan mengisi data secara otomatis. Langkah ini tidak wajib, data juga bisa diisi manual."
+    },
+    {
+      "id": "05_periksa",
+      "start": 53.0,
+      "end": 67.4,
+      "text": "Periksa kembali hasil bacaannya: nomor penetapan, data pemohon, dan data terampu. Kalau ada kolom berwarna kuning, artinya data belum ditemukan. Silakan lengkapi secara manual."
+    },
+    {
+      "id": "06_jadwal",
+      "start": 67.4,
+      "end": 80.6,
+      "text": "Berikutnya, isi tanggal sumpah, waktu, tempat, dan nomor HP pemohon. Pilih pejabat penyumpah, lalu klik Simpan dan Lihat Dokumen."
+    },
+    {
+      "id": "07_detail",
+      "start": 80.6,
+      "end": 94.2,
+      "text": "Data berkas tersusun rapi per tab: Perkara, Pengampu, Terampu, Jadwal, serta BAP dan Harta. Tanda merah menunjukkan kolom yang masih perlu dicek."
+    },
+    {
+      "id": "08_dokumen",
+      "start": 94.2,
+      "end": 107.3,
+      "text": "Di tab Dokumen, Anda bisa melihat paket surat yang diperlukan. Klik Pratinjau untuk melihat isinya, lalu klik Buat Google Doc untuk menyimpannya ke Drive."
+    },
+    {
+      "id": "09_kalender",
+      "start": 107.3,
+      "end": 115.8,
+      "text": "Menu Jadwal Sumpah menampilkan kalender. Angka kuning menunjukkan jumlah penyumpahan yang sudah terjadwal pada hari itu."
+    },
+    {
+      "id": "10_riwayat",
+      "start": 115.8,
+      "end": 126.8,
+      "text": "Admin Utama juga dapat membuka Riwayat, untuk melihat siapa mengubah apa, dan kapan. Semua aktivitas tercatat secara permanen."
+    },
+    {
+      "id": "11_pengguna",
+      "start": 126.8,
+      "end": 142.9,
+      "text": "Terakhir, menu Pengguna dipakai untuk menambah admin, menonaktifkan akun, atau mengatur ulang password. Selesai!",
+      "keep": 11.0
+    },
+    {
+      "id": "12_penutup",
+      "start": 142.9,
+      "end": 154.7,
+      "text": "Jika ada kendala, silakan hubungi mantan. Selamat bekerja!",
+      "keep": 8.5,
+      "lead": 2.8
+    }
+  ],
+  "profile": "Narator perempuan, penutur asli bahasa Indonesia, sekitar 30 tahun."
+}
