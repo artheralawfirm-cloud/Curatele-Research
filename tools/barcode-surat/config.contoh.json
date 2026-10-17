@@ -1,0 +1,14 @@
+{
+  "halaman": "terakhir",
+  "qr_isi": "Dokumen sah ditandatangani secara elektronik\nNomor: {nomor}\nPerihal: {perihal}\nTanggal: {tanggal}\nKode: {kode}",
+  "qr_ukuran_mm": 25,
+  "posisi": {
+    "kanan_mm": 20,
+    "bawah_mm": 40
+  },
+  "logo_gembok": "",
+  "ttd": "",
+  "nama_penandatangan": "",
+  "footer": "Dokumen ini telah ditandatangani secara elektronik. Verifikasi keaslian dengan memindai QR code.",
+  "footer_ukuran_font": 7
+}
