@@ -18,13 +18,13 @@ from PIL import Image, ImageDraw
 
 DEFAULT_CONFIG = {
     "halaman": "terakhir",              # "terakhir", "pertama", atau "semua"
-    "qr_isi": "Dokumen sah ditandatangani secara elektronik\nNomor: {nomor}\nPerihal: {perihal}\nTanggal: {tanggal}\nKode: {kode}",
+    "qr_isi": "Nomor: {nomor}\nPerihal: {perihal}\nTanggal: {tanggal}\nKode: {kode}",
     "qr_ukuran_mm": 25,
     "posisi": {"kanan_mm": 20, "bawah_mm": 40},  # sudut kanan-bawah blok TTD
     "logo_gembok": "",                   # path PNG; kosong = gembok bawaan
     "ttd": "",                           # path PNG tanda tangan (transparan); kosong = tidak dipasang
     "nama_penandatangan": "",
-    "footer": "Dokumen ini telah ditandatangani secara elektronik. Verifikasi keaslian dengan memindai QR code.",
+    "footer": "Salinan untuk arsip internal. Bukan dokumen bertanda tangan elektronik BSrE.",
     "footer_ukuran_font": 7,
 }
 MM = 72 / 25.4

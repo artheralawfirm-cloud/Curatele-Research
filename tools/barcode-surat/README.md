@@ -24,6 +24,14 @@ pip install -r requirements.txt
   proses **dibatalkan seluruhnya** supaya tidak ada yang tertukar.
 - Setiap surat mendapat kode unik (hash isi PDF) di QR dan footer.
 
+## PENTING: ini bukan tanda tangan elektronik BSrE
+QR, gembok, dan footer resmi pada surat SUMAKER ("ditandatangani secara elektronik menggunakan sertifikat
+elektronik yang diterbitkan oleh BSrE, BSSN") muncul karena PDF benar-benar ditandatangani secara digital
+dengan sertifikat BSrE. Menempelkan gambar QR/gembok/footer yang sama ke PDF **tidak** membuat surat itu sah,
+dan surat seperti itu akan gagal diverifikasi di https://bsre.bssn.go.id/pdf-verification.
+Karena itu alat ini sengaja **tidak** meniru footer/gembok BSrE. Pakai hanya untuk penanda/arsip internal.
+Untuk TTE massal yang sah, otomatisasinya harus menjalankan tombol TTE di SUMAKER (lihat di bawah).
+
 ## Keterbatasan
 Belum terhubung langsung ke SUMAKER (akses server ada di admin pusat). Setelah ada rekaman layar
 proses barcode 1 surat, langkah unduh/unggah bisa diotomatisasi lewat userscript browser.

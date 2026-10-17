@@ -1,6 +1,6 @@
 {
   "halaman": "terakhir",
-  "qr_isi": "Dokumen sah ditandatangani secara elektronik\nNomor: {nomor}\nPerihal: {perihal}\nTanggal: {tanggal}\nKode: {kode}",
+  "qr_isi": "Nomor: {nomor}\nPerihal: {perihal}\nTanggal: {tanggal}\nKode: {kode}",
   "qr_ukuran_mm": 25,
   "posisi": {
     "kanan_mm": 20,
@@ -9,6 +9,6 @@
   "logo_gembok": "",
   "ttd": "",
   "nama_penandatangan": "",
-  "footer": "Dokumen ini telah ditandatangani secara elektronik. Verifikasi keaslian dengan memindai QR code.",
+  "footer": "Salinan untuk arsip internal. Bukan dokumen bertanda tangan elektronik BSrE.",
   "footer_ukuran_font": 7
 }
