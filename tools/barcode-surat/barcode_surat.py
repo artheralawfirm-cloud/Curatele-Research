@@ -7,6 +7,7 @@ Struktur folder:
     aset/3280/        ...
     aset/gembok.png   (opsional) dipakai semua surat jika folder surat tidak punya gembok sendiri
     aset/footer.png   (opsional) idem untuk footer
+Jika gembok/footer tidak ada sama sekali, dipakai versi PNG transparan di aset_bawaan/.
 
 QR wajib ada per surat dan tidak boleh sama antar-surat, supaya QR tidak mungkin tertukar.
 
@@ -28,6 +29,7 @@ DEFAULT_CONFIG = {
     "footer": {"x": 85, "lebar": 468, "tinggi": 21, "jarak_bawah": 36, "halaman": "semua"},
 }
 EKSTENSI = (".png", ".jpg", ".jpeg")
+ASET_BAWAAN = Path(__file__).resolve().parent / "aset_bawaan"
 
 
 def cari_aset(folder, nama):
@@ -83,7 +85,7 @@ def siapkan(surat_dir, aset_dir):
     pdfs = sorted(p for p in surat_dir.iterdir() if p.suffix.lower() == ".pdf")
     if not pdfs:
         sys.exit(f"Tidak ada PDF di {surat_dir}")
-    umum = {k: cari_aset(aset_dir, k) for k in ("gembok", "footer")}
+    umum = {k: cari_aset(aset_dir, k) or cari_aset(ASET_BAWAAN, k) for k in ("gembok", "footer")}
     pasangan, masalah, qr_hash = {}, [], {}
     for p in pdfs:
         d = aset_dir / p.stem

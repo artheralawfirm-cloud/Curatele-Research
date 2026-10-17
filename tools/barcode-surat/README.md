@@ -18,11 +18,14 @@ surat/3279.pdf               <- PDF surat yang sudah disetujui
 surat/3280.pdf
 aset/3279/qr.jpg             <- QR milik surat 3279 (unduhan SUMAKER)
 aset/3280/qr.jpg
-aset/gembok.jpg              <- gembok (sama untuk semua surat)
-aset/footer.jpg              <- footer (sama untuk semua surat)
 ```
-Nama subfolder di `aset/` harus sama dengan nama file PDF (tanpa `.pdf`). Kalau ada surat yang punya
-gembok/footer sendiri, taruh `gembok.*` / `footer.*` di subfolder surat itu. Format boleh png/jpg.
+Nama subfolder di `aset/` harus sama dengan nama file PDF (tanpa `.pdf`). Cukup QR saja: gembok dan footer
+(sama untuk semua surat) sudah tersedia sebagai PNG transparan di `aset_bawaan/`, jadi tidak ada lagi kotak
+latar abu-abu di surat. Kalau suatu saat gembok/footer dari SUMAKER berubah, taruh file baru di
+`aset/gembok.*` / `aset/footer.*` (dipakai menggantikan bawaan), atau perbarui bawaannya:
+```
+python rapikan_aset.py gembok.jpg footer.jpg --output aset_bawaan
+```
 
 ## Jalankan
 ```
