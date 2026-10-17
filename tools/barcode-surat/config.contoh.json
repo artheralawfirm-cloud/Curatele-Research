@@ -1,0 +1,24 @@
+{
+  "jangkar": [
+    "Kepala,",
+    "Plt. Kepala,",
+    "Plh. Kepala,",
+    "Pejabat Pembuat Komitmen"
+  ],
+  "jarak_bawah_jangkar": 2,
+  "qr": {
+    "x": 87,
+    "lebar": 71
+  },
+  "gembok": {
+    "lebar": 51,
+    "tinggi": 70
+  },
+  "footer": {
+    "x": 85,
+    "lebar": 468,
+    "tinggi": 21,
+    "jarak_bawah": 36,
+    "halaman": "semua"
+  }
+}
