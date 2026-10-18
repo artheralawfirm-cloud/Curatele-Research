@@ -131,7 +131,7 @@
 
   // Baris jabatan penanda tangan yang berdiri sendiri, mis. "Kepala,", "Plt. Kepala,", "a.n. Kepala Balai …,".
   // Baris tembusan/isi surat tidak cocok. Halaman tambahan dengan TTD basah (mis. SPPD "Pejabat Pembuat
-  // Komitmen") tidak ditempeli, sama seperti surat asli hasil SUMAKER.
+  // Komitmen") tidak diberi QR/gembok, tetapi tetap mendapat footer seperti semua halaman lain.
   const POLA_JANGKAR = /^((a\.?\s?n\.?|plt\.?|plh\.?)\s*)?kepala\b.*,$/i;
 
   // Kotak teks (koordinat PDF) dari item pdf.js
@@ -220,8 +220,8 @@
       cekTabrakan(kGembok, teksHal(j.halaman), 'Gembok', j.halaman + 1);
       return { j, kQr, kGembok };
     });
-    // footer: dari halaman 1 sampai halaman tanda tangan terakhir; lampiran di belakangnya tidak disentuh
-    const halFooter = pdf.getPages().slice(0, Math.max(...jangkar.map((j) => j.halaman)) + 1);
+    // footer: di bagian bawah SEMUA halaman dokumen
+    const halFooter = pdf.getPages();
     const kFooter = { x0: F.x, x1: F.x + f.width, y0: F.jarakBawah, y1: F.jarakBawah + f.height };
     halFooter.forEach((p, n) => cekTabrakan(kFooter, teksHal(n), 'Footer', n + 1));
 
