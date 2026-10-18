@@ -1,0 +1,343 @@
+// ==UserScript==
+// @name         SUMAKER Barcode Massal
+// @namespace    bhp-medan
+// @version      0.1.0
+// @description  Tempel QR, gembok (Logo SE) dan footer SUMAKER ke banyak surat sekaligus di halaman Tanda Tangan Elektronik.
+// @match        https://sumaker.kemenkum.go.id/main/dse*
+// @require      https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
+// @grant        none
+// ==/UserScript==
+
+/*
+ * Cara kerja: setiap baris di tabel Tanda Tangan Elektronik sudah punya tautan Surat, QRCode,
+ * Logo SE dan Footer miliknya sendiri. Skrip ini mengambil keempatnya per baris (jadi QR tidak
+ * mungkin tertukar antarsurat), menempelkan QR + gembok di bawah tulisan "Kepala," dan footer di
+ * bawah setiap halaman, lalu memberikan semua hasil dalam satu ZIP. Unggah balik lewat
+ * "Kirim Surat" masih manual. Tidak ada data yang dikirim ke luar SUMAKER.
+ */
+(function () {
+  'use strict';
+
+  // Posisi diukur dari contoh surat tugas BHP Medan (point, origin kiri-bawah seperti PDF).
+  const TATA_LETAK = {
+    jangkar: ['Kepala,', 'Plt. Kepala,', 'Plh. Kepala,', 'Pejabat Pembuat Komitmen'],
+    jarakBawahJangkar: 2,
+    qr: { x: 87, lebar: 71 },
+    gembok: { lebar: 51, tinggi: 70 },
+    footer: { x: 85, lebar: 468, tinggi: 21, jarakBawah: 36 },
+    celahAtasFooter: 4,
+    // Bila blok TTD terlalu bawah, isi halaman itu diperkecil seragam (paling kecil 92%) agar muat,
+    // tanpa menggeser teks satu per satu dan tanpa menambah halaman.
+    skalaMin: 0.92,
+  };
+  const LINK = { surat: /^surat$/i, qr: /^qr\s*code$/i, gembok: /^logo\s*se$/i, footer: /^footer$/i };
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  // ---------- ambil berkas dari SUMAKER ----------
+
+  function jenis(bytes) {
+    const b = bytes.slice(0, 4);
+    if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'pdf';
+    if (b[0] === 0x89 && b[1] === 0x50) return 'png';
+    if (b[0] === 0xff && b[1] === 0xd8) return 'jpg';
+    return 'lain';
+  }
+
+  // Tautan bisa langsung ke berkas, atau ke halaman yang menampilkan berkas (img/iframe/embed).
+  async function ambil(url, harap, kedalaman = 0) {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const j = jenis(bytes);
+    if (harap === 'pdf' ? j === 'pdf' : j === 'png' || j === 'jpg') return { bytes, jenis: j };
+    if (kedalaman > 0) throw new Error(`${url} bukan ${harap} (terdeteksi: ${j})`);
+    const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'text/html');
+    const pilih = harap === 'pdf'
+      ? 'iframe[src], embed[src], object[data], a[href*=".pdf"]'
+      : 'img[src]';
+    const el = doc.querySelector(pilih);
+    const src = el && (el.getAttribute('src') || el.getAttribute('data') || el.getAttribute('href'));
+    if (!src) throw new Error(`${url} tidak berisi ${harap}`);
+    return ambil(new URL(src, url).href, harap, kedalaman + 1);
+  }
+
+  // ---------- rapikan gambar JPG (latar jadi transparan) ----------
+
+  async function keCanvas(bytes) {
+    const bmp = await createImageBitmap(new Blob([bytes]));
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(bmp, 0, 0);
+    return { c, ctx, data: ctx.getImageData(0, 0, c.width, c.height) };
+  }
+
+  async function kePng(c) {
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  // Gembok: hanya latar di luar garis gembok (dan lubang lengkungnya) yang dibuat transparan.
+  async function rapikanGembok(bytes) {
+    const { c, ctx, data } = await keCanvas(bytes);
+    const { width: w, height: h } = c, px = data.data;
+    const seen = new Uint8Array(w * h);
+    const benih = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1], [w >> 1, h >> 2]];
+    for (const [sx, sy] of benih) {
+      const i0 = (sy * w + sx) * 4, ref = [px[i0], px[i0 + 1], px[i0 + 2]];
+      if (ref[0] < 200) continue; // benih bukan latar terang
+      const stack = [sy * w + sx];
+      while (stack.length) {
+        const p = stack.pop();
+        if (seen[p]) continue;
+        const i = p * 4;
+        if (Math.abs(px[i] - ref[0]) + Math.abs(px[i + 1] - ref[1]) + Math.abs(px[i + 2] - ref[2]) > 40) continue;
+        seen[p] = 1; px[i + 3] = 0;
+        const x = p % w, y = (p / w) | 0;
+        if (x > 0) stack.push(p - 1);
+        if (x < w - 1) stack.push(p + 1);
+        if (y > 0) stack.push(p - w);
+        if (y < h - 1) stack.push(p + w);
+      }
+    }
+    ctx.putImageData(data, 0, 0);
+    return kePng(c);
+  }
+
+  // Footer: latar putih jadi transparan, warna tulisan dikembalikan.
+  async function rapikanFooter(bytes) {
+    const { c, ctx, data } = await keCanvas(bytes);
+    const px = data.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const a = 255 - Math.min(px[i], px[i + 1], px[i + 2]);
+      if (a < 8) { px[i + 3] = 0; continue; }
+      const f = 255 / a;
+      for (let k = 0; k < 3; k++) px[i + k] = Math.max(0, Math.min(255, Math.round(255 - (255 - px[i + k]) * f)));
+      px[i + 3] = a;
+    }
+    ctx.putImageData(data, 0, 0);
+    return kePng(c);
+  }
+
+  // ---------- tempel ke PDF ----------
+
+  async function cariJangkar(pdfBytes) {
+    const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+    for (let n = doc.numPages; n >= 1; n--) {
+      const items = (await (await doc.getPage(n)).getTextContent()).items;
+      let hit = null;
+      for (const it of items) {
+        if (TATA_LETAK.jangkar.some((j) => it.str.includes(j))) {
+          if (!hit || it.transform[5] < hit.transform[5]) hit = it; // paling bawah di halaman
+        }
+      }
+      if (hit) {
+        const size = Math.abs(hit.transform[3]) || hit.height;
+        return { halaman: n - 1, x: hit.transform[4], yBawah: hit.transform[5] - 0.25 * size };
+      }
+    }
+    return null;
+  }
+
+  async function sematkan(pdf, aset) {
+    return aset.jenis === 'png' ? pdf.embedPng(aset.bytes) : pdf.embedJpg(aset.bytes);
+  }
+
+  function muat(img, lebarMaks, tinggiMaks) {
+    const s = Math.min(lebarMaks / img.width, tinggiMaks / img.height);
+    return { width: img.width * s, height: img.height * s };
+  }
+
+  async function tempel(pdfBytes, qr, gembok, footer) {
+    const j = await cariJangkar(pdfBytes);
+    if (!j) throw new Error(`teks ${TATA_LETAK.jangkar.join(' / ')} tidak ditemukan`);
+    let pdf = await PDFLib.PDFDocument.load(pdfBytes);
+    const jumlahHalaman = pdf.getPageCount();
+    const ukuranGambar = async (aset) => { const i = await sematkan(await PDFLib.PDFDocument.create(), aset); return { width: i.width, height: i.height }; };
+    const g = muat(await ukuranGambar(gembok), TATA_LETAK.gembok.lebar, TATA_LETAK.gembok.tinggi);
+    const F = TATA_LETAK.footer, f = muat(await ukuranGambar(footer), F.lebar, F.tinggi);
+    const q = TATA_LETAK.qr.lebar, H = pdf.getPage(j.halaman).getHeight();
+    const butuh = TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height);
+    const batasBawah = F.jarakBawah + f.height + TATA_LETAK.celahAtasFooter;
+    let atas = j.yBawah - TATA_LETAK.jarakBawahJangkar, x = j.x, skala = 1;
+
+    if (j.yBawah - butuh < batasBawah) {
+      // perkecil isi halaman dengan titik tetap di sudut kiri-atas (margin kiri tetap, kop surat tetap di atas)
+      skala = (H - butuh - batasBawah) / (H - j.yBawah);
+      if (skala < TATA_LETAK.skalaMin) {
+        throw new Error(`blok TTD di halaman ${j.halaman + 1} terlalu dekat ke bawah; perlu diperkecil ke ${Math.round(skala * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%)`);
+      }
+      skala = Math.floor(skala * 1000) / 1000;
+      const tx = F.x * (1 - skala), ty = H * (1 - skala);
+      const pg = pdf.getPage(j.halaman);
+      // translateContent lalu scaleContent → titik p menjadi skala*p + (tx, ty)
+      pg.translateContent(tx / skala, ty / skala);
+      pg.scaleContent(skala, skala);
+      // simpan & muat ulang, supaya tempelan di bawah jadi lapisan terpisah di luar transformasi skala
+      pdf = await PDFLib.PDFDocument.load(await pdf.save());
+      x = skala * j.x + tx;
+      atas = skala * j.yBawah + ty - TATA_LETAK.jarakBawahJangkar;
+    }
+    const pg = pdf.getPage(j.halaman);
+    if (x + g.width > pg.getWidth()) throw new Error(`gembok keluar dari tepi kanan halaman ${j.halaman + 1}`);
+
+    const [iQr, iGembok, iFooter] = [await sematkan(pdf, qr), await sematkan(pdf, gembok), await sematkan(pdf, footer)];
+    pg.drawImage(iQr, { x: TATA_LETAK.qr.x, y: atas - q, width: q, height: q });
+    pg.drawImage(iGembok, { x, y: atas - g.height, ...g });
+    for (const p of pdf.getPages()) p.drawImage(iFooter, { x: F.x, y: F.jarakBawah, ...f });
+    // hanya menggambar di halaman yang ada; jumlah halaman tidak boleh berubah
+    if (pdf.getPageCount() !== jumlahHalaman) throw new Error('jumlah halaman berubah');
+    return { bytes: await pdf.save(), halaman: j.halaman + 1, skala };
+  }
+
+  // ---------- baca tabel ----------
+
+  function bacaBaris() {
+    const tabel = [...document.querySelectorAll('table')].find((t) => /perihal/i.test(t.tHead?.textContent || t.rows[0]?.textContent || ''));
+    if (!tabel) throw new Error('tabel surat tidak ditemukan di halaman ini');
+    const kepala = [...(tabel.tHead || tabel).rows[0].cells].map((c) => c.textContent.trim().toUpperCase());
+    const kol = (n) => kepala.indexOf(n);
+    const baris = [];
+    for (const tr of tabel.tBodies[0].rows) {
+      if (tr.cells.length < 3) continue;
+      const tautan = {};
+      for (const a of tr.querySelectorAll('a')) {
+        const t = a.textContent.replace(/\s+/g, ' ').trim();
+        for (const [k, re] of Object.entries(LINK)) if (re.test(t) && a.href && !a.href.startsWith('javascript')) tautan[k] = a.href;
+      }
+      baris.push({
+        no: tr.cells[kol('NO')]?.textContent.trim() || String(baris.length + 1),
+        perihal: tr.cells[kol('PERIHAL')]?.textContent.trim() || '',
+        tautan,
+      });
+    }
+    return baris;
+  }
+
+  // ---------- proses ----------
+
+  async function sha(bytes) {
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return [...h].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Nama file = Perihal Surat. Perihal yang sama persis diberi akhiran (2), (3), … agar tidak saling timpa.
+  function beriNama(baris) {
+    const dipakai = new Map();
+    for (const b of baris) {
+      const dasar = b.perihal.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150) || `surat ${b.no}`;
+      const n = (dipakai.get(dasar.toLowerCase()) || 0) + 1;
+      dipakai.set(dasar.toLowerCase(), n);
+      b.nama = n === 1 ? `${dasar}.pdf` : `${dasar} (${n}).pdf`;
+    }
+  }
+
+  async function prosesSemua(log) {
+    const baris = bacaBaris();
+    log(`Ditemukan ${baris.length} surat di halaman ini.`);
+    const kurang = baris.filter((b) => ['surat', 'qr', 'gembok', 'footer'].some((k) => !b.tautan[k]));
+    if (kurang.length) throw new Error(`baris ${kurang.map((b) => b.no).join(', ')} tidak punya semua tautan Surat/QRCode/Logo SE/Footer. Klik "Cek tautan" dan kirim hasilnya ke pembuat skrip.`);
+
+    // 1) unduh semua dulu; gembok/footer di-cache per isi berkas
+    const cache = new Map();
+    const rapikan = async (url, fn) => {
+      const a = await ambil(url, 'gambar');
+      const key = await sha(a.bytes);
+      if (!cache.has(key)) cache.set(key, a.jenis === 'png' ? a : { bytes: await fn(a.bytes), jenis: 'png' });
+      return cache.get(key);
+    };
+    const qrHash = new Map(), masalah = [];
+    for (const b of baris) {
+      log(`Mengambil ${b.no}. ${b.perihal.slice(0, 60)}…`);
+      try {
+        b.pdf = (await ambil(b.tautan.surat, 'pdf')).bytes;
+        b.qr = await ambil(b.tautan.qr, 'gambar');
+        b.gembok = await rapikan(b.tautan.gembok, rapikanGembok);
+        b.footer = await rapikan(b.tautan.footer, rapikanFooter);
+        const h = await sha(b.qr.bytes);
+        if (qrHash.has(h)) masalah.push(`QR baris ${b.no} sama persis dengan baris ${qrHash.get(h)} (kemungkinan tertukar)`);
+        qrHash.set(h, b.no);
+      } catch (e) {
+        masalah.push(`baris ${b.no}: ${e.message}`);
+      }
+    }
+    if (masalah.length) throw new Error('Dibatalkan, tidak ada surat yang diproses:\n' + masalah.join('\n'));
+
+    // 2) tempel
+    beriNama(baris);
+    const zip = new JSZip(), laporan = [['no', 'perihal', 'file', 'halaman_ttd', 'status', 'keterangan']];
+    let ok = 0;
+    for (const b of baris) {
+      try {
+        const r = await tempel(b.pdf, b.qr, b.gembok, b.footer);
+        zip.file(b.nama, r.bytes);
+        laporan.push([b.no, b.perihal, b.nama, r.halaman, 'OK', r.skala < 1 ? `isi halaman ${r.halaman} diperkecil ke ${(r.skala * 100).toFixed(1)}% agar muat` : '']);
+        if (r.skala < 1) log(`Catatan ${b.no}: isi halaman ${r.halaman} diperkecil ke ${(r.skala * 100).toFixed(1)}% agar muat.`);
+        ok++;
+      } catch (e) {
+        laporan.push([b.no, b.perihal, '', '', 'GAGAL', e.message]);
+        log(`GAGAL ${b.no}: ${e.message}`);
+      }
+    }
+    const csv = laporan.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    zip.file('laporan.csv', '﻿' + csv);
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: `surat-barcode-${new Date().toISOString().slice(0, 10)}.zip`,
+    });
+    document.body.appendChild(a); a.click(); a.remove();
+    log(`Selesai: ${ok}/${baris.length} surat. ZIP sudah diunduh. Nama tiap file = perihal surat; unggah lewat "Kirim Surat" di baris dengan perihal yang sama.`);
+  }
+
+  // Diagnostik: tampilkan tautan baris pertama dan jenis berkasnya, untuk menyesuaikan skrip.
+  async function cekTautan(log) {
+    const b = bacaBaris()[0];
+    if (!b) return log('Tidak ada baris surat.');
+    log(`Baris ${b.no}: ${b.perihal.slice(0, 60)}`);
+    for (const k of Object.keys(LINK)) {
+      const url = b.tautan[k];
+      if (!url) { log(`  ${k}: TIDAK DITEMUKAN`); continue; }
+      try {
+        const r = await ambil(url, k === 'surat' ? 'pdf' : 'gambar');
+        log(`  ${k}: OK (${r.jenis}, ${r.bytes.length} byte)`);
+      } catch (e) {
+        log(`  ${k}: ${e.message}`);
+      }
+    }
+  }
+
+  // ---------- panel ----------
+
+  function panel() {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;width:360px;background:#fff;color:#222;' +
+      'border:2px solid #f5c400;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);font:13px sans-serif;padding:10px';
+    box.innerHTML = '<b>Barcode Massal</b><div style="margin:8px 0;display:flex;gap:6px">' +
+      '<button data-a="proses" style="flex:1;padding:6px;background:#f5c400;border:0;border-radius:4px;font-weight:bold;cursor:pointer">Barcode semua surat</button>' +
+      '<button data-a="cek" style="padding:6px;border:1px solid #999;border-radius:4px;background:#fff;cursor:pointer">Cek tautan</button></div>' +
+      '<pre style="max-height:220px;overflow:auto;white-space:pre-wrap;margin:0;font-size:12px"></pre>';
+    document.body.appendChild(box);
+    const out = box.querySelector('pre');
+    const log = (s) => { out.textContent += s + '\n'; out.scrollTop = out.scrollHeight; };
+    for (const btn of box.querySelectorAll('button')) {
+      btn.onclick = async () => {
+        box.querySelectorAll('button').forEach((x) => (x.disabled = true));
+        out.textContent = '';
+        try {
+          await (btn.dataset.a === 'proses' ? prosesSemua(log) : cekTautan(log));
+        } catch (e) {
+          log('⚠ ' + e.message);
+        } finally {
+          box.querySelectorAll('button').forEach((x) => (x.disabled = false));
+        }
+      };
+    }
+  }
+
+  panel();
+})();
