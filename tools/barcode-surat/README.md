@@ -6,7 +6,7 @@
 (`sumaker.kemenkum.go.id/main/dse`). Untuk setiap baris surat, plugin mengambil tautan
 **Surat, QRCode, Logo SE, Footer** milik baris itu sendiri, menempelkannya, lalu mengunduh satu ZIP.
 
-**Pasang (sekali saja)**
+**Pasang (sekali saja)** — panduan bergambar: [`tutorial-pasang-plugin.jpg`](tutorial-pasang-plugin.jpg)
 1. Pasang ekstensi **Tampermonkey** di Chrome/Edge.
 2. Buka Tampermonkey → *Create a new script*, hapus isinya, tempel seluruh isi `sumaker-barcode.user.js`, simpan.
 3. Buka halaman Tanda Tangan Elektronik di SUMAKER. Kotak kuning **Barcode Massal** muncul di kanan bawah, dan kotak centang muncul di kolom NO.
