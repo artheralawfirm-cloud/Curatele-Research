@@ -105,7 +105,12 @@
       }
     }
     ctx.putImageData(data, 0, 0);
-    return kePng(c);
+    // 600 px tinggi ≈ 600 dpi pada ukuran cetak gembok; ukuran PDF jadi jauh lebih kecil
+    if (h <= 600) return kePng(c);
+    const k = document.createElement('canvas');
+    k.height = 600; k.width = Math.round(w * 600 / h);
+    k.getContext('2d').drawImage(c, 0, 0, k.width, k.height);
+    return kePng(k);
   }
 
   // Footer: latar putih jadi transparan, warna tulisan dikembalikan.
@@ -196,8 +201,12 @@
 
   // ---------- baca tabel ----------
 
+  function tabelSurat() {
+    return [...document.querySelectorAll('table')].find((t) => /perihal/i.test(t.tHead?.textContent || t.rows[0]?.textContent || ''));
+  }
+
   function bacaBaris() {
-    const tabel = [...document.querySelectorAll('table')].find((t) => /perihal/i.test(t.tHead?.textContent || t.rows[0]?.textContent || ''));
+    const tabel = tabelSurat();
     if (!tabel) throw new Error('tabel surat tidak ditemukan di halaman ini');
     const kepala = [...(tabel.tHead || tabel).rows[0].cells].map((c) => c.textContent.trim().toUpperCase());
     const kol = (n) => kepala.indexOf(n);
@@ -210,6 +219,7 @@
         for (const [k, re] of Object.entries(LINK)) if (re.test(t) && a.href && !a.href.startsWith('javascript')) tautan[k] = a.href;
       }
       baris.push({
+        dipilih: !!tr.querySelector('input.bm-pilih:checked'),
         no: tr.cells[kol('NO')]?.textContent.trim() || String(baris.length + 1),
         perihal: tr.cells[kol('PERIHAL')]?.textContent.trim() || '',
         tautan,
@@ -237,8 +247,9 @@
   }
 
   async function prosesSemua(log) {
-    const baris = bacaBaris();
-    log(`Ditemukan ${baris.length} surat di halaman ini.`);
+    const baris = bacaBaris().filter((b) => b.dipilih);
+    if (!baris.length) throw new Error('belum ada surat yang dicentang');
+    log(`${baris.length} surat dipilih.`);
     const kurang = baris.filter((b) => ['surat', 'qr', 'gembok', 'footer'].some((k) => !b.tautan[k]));
     if (kurang.length) throw new Error(`baris ${kurang.map((b) => b.no).join(', ')} tidak punya semua tautan Surat/QRCode/Logo SE/Footer. Klik "Cek tautan" dan kirim hasilnya ke pembuat skrip.`);
 
@@ -311,21 +322,56 @@
     }
   }
 
+  // ---------- kotak centang per baris ----------
+
+  function pasangCentang(saatBerubah) {
+    const tabel = tabelSurat();
+    if (!tabel) return;
+    const kotak = (cls) => Object.assign(document.createElement('input'), { type: 'checkbox', className: cls });
+    const th = (tabel.tHead || tabel).rows[0].cells[0];
+    if (!th.querySelector('.bm-semua')) {
+      const semua = kotak('bm-semua');
+      semua.title = 'Pilih semua surat di halaman ini';
+      semua.style.cssText = 'margin-right:6px;transform:scale(1.3)';
+      semua.onchange = () => {
+        tabel.querySelectorAll('input.bm-pilih').forEach((c) => (c.checked = semua.checked));
+        saatBerubah();
+      };
+      th.prepend(semua);
+    }
+    for (const tr of tabel.tBodies[0].rows) {
+      if (tr.cells.length < 3 || tr.cells[0].querySelector('.bm-pilih')) continue;
+      const c = kotak('bm-pilih');
+      c.style.cssText = 'margin-right:6px;transform:scale(1.3);cursor:pointer';
+      c.onchange = saatBerubah;
+      tr.cells[0].prepend(c);
+    }
+  }
+
   // ---------- panel ----------
 
   function panel() {
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;width:360px;background:#fff;color:#222;' +
       'border:2px solid #f5c400;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);font:13px sans-serif;padding:10px';
-    box.innerHTML = '<b>Barcode Massal</b><div style="margin:8px 0;display:flex;gap:6px">' +
-      '<button data-a="proses" style="flex:1;padding:6px;background:#f5c400;border:0;border-radius:4px;font-weight:bold;cursor:pointer">Barcode semua surat</button>' +
+    box.innerHTML = '<b>Barcode Massal</b><div style="font-size:12px;color:#555;margin-top:2px">Centang surat di kolom NO, lalu klik tombol kuning.</div><div style="margin:8px 0;display:flex;gap:6px">' +
+      '<button data-a="proses" style="flex:1;padding:6px;background:#f5c400;border:0;border-radius:4px;font-weight:bold;cursor:pointer">Centang surat dulu</button>' +
       '<button data-a="cek" style="padding:6px;border:1px solid #999;border-radius:4px;background:#fff;cursor:pointer">Cek tautan</button></div>' +
       '<pre style="max-height:220px;overflow:auto;white-space:pre-wrap;margin:0;font-size:12px"></pre>';
     document.body.appendChild(box);
     const out = box.querySelector('pre');
     const log = (s) => { out.textContent += s + '\n'; out.scrollTop = out.scrollHeight; };
+    const tombol = box.querySelector('[data-a="proses"]');
+    let sibuk = false;
+    const perbarui = () => {
+      const n = document.querySelectorAll('input.bm-pilih:checked').length;
+      tombol.textContent = n ? `Barcode surat terpilih (${n})` : 'Centang surat dulu';
+      tombol.disabled = sibuk || !n;
+      tombol.style.opacity = tombol.disabled ? '.5' : '1';
+    };
     for (const btn of box.querySelectorAll('button')) {
       btn.onclick = async () => {
+        sibuk = true;
         box.querySelectorAll('button').forEach((x) => (x.disabled = true));
         out.textContent = '';
         try {
@@ -333,10 +379,17 @@
         } catch (e) {
           log('⚠ ' + e.message);
         } finally {
+          sibuk = false;
           box.querySelectorAll('button').forEach((x) => (x.disabled = false));
+          perbarui();
         }
       };
     }
+    // tabel bisa digambar ulang (ganti halaman, cari); pasang lagi kotak centangnya
+    pasangCentang(perbarui);
+    const tabel = tabelSurat();
+    if (tabel) new MutationObserver(() => { pasangCentang(perbarui); perbarui(); }).observe(tabel, { childList: true, subtree: true });
+    perbarui();
   }
 
   panel();
