@@ -215,7 +215,8 @@
       if (tr.cells.length < 3) continue;
       const tautan = {};
       for (const a of tr.querySelectorAll('a')) {
-        const t = a.textContent.replace(/\s+/g, ' ').trim();
+        // abaikan ikon/simbol di depan teks tautan, mis. "🗎 Surat"
+        const t = a.textContent.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
         for (const [k, re] of Object.entries(LINK)) if (re.test(t) && a.href && !a.href.startsWith('javascript')) tautan[k] = a.href;
       }
       baris.push({
