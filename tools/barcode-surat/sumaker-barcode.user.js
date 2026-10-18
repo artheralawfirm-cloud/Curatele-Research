@@ -22,7 +22,6 @@
 
   // Posisi diukur dari contoh surat tugas BHP Medan (point, origin kiri-bawah seperti PDF).
   const TATA_LETAK = {
-    jangkar: ['Kepala,', 'Plt. Kepala,', 'Plh. Kepala,', 'Pejabat Pembuat Komitmen'],
     jarakBawahJangkar: 2,
     qr: { x: 87, lebar: 71 },
     gembok: { lebar: 51, tinggi: 70 },
@@ -130,22 +129,41 @@
 
   // ---------- tempel ke PDF ----------
 
+  // Baris jabatan penanda tangan yang berdiri sendiri, mis. "Kepala,", "Plt. Kepala,", "a.n. Kepala Balai …,".
+  // Baris tembusan/isi surat tidak cocok. Halaman tambahan dengan TTD basah (mis. SPPD "Pejabat Pembuat
+  // Komitmen") tidak ditempeli, sama seperti surat asli hasil SUMAKER.
+  const POLA_JANGKAR = /^((a\.?\s?n\.?|plt\.?|plh\.?)\s*)?kepala\b.*,$/i;
+
+  // Kotak teks (koordinat PDF) dari item pdf.js
+  function kotakTeks(it) {
+    const h = Math.abs(it.transform[3]) || it.height || 10;
+    return { x0: it.transform[4], x1: it.transform[4] + (it.width || 0), y0: it.transform[5] - 0.25 * h, y1: it.transform[5] + 0.8 * h, str: it.str.trim() };
+  }
+
+  // Setiap halaman yang punya blok tanda tangan (surat, lampiran, SPPD, …) mendapat QR + gembok sendiri,
+  // di bawah baris jabatan paling bawah pada halaman itu.
   async function cariJangkar(pdfBytes) {
     const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
-    for (let n = doc.numPages; n >= 1; n--) {
-      const items = (await (await doc.getPage(n)).getTextContent()).items;
-      let hit = null;
-      for (const it of items) {
-        if (TATA_LETAK.jangkar.some((j) => it.str.includes(j))) {
-          if (!hit || it.transform[5] < hit.transform[5]) hit = it; // paling bawah di halaman
-        }
-      }
-      if (hit) {
-        const size = Math.abs(hit.transform[3]) || hit.height;
-        return { halaman: n - 1, x: hit.transform[4], yBawah: hit.transform[5] - 0.25 * size };
+    const teks = [], jangkar = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const items = (await (await doc.getPage(n)).getTextContent()).items.filter((it) => it.str && it.str.trim());
+      teks.push(items.map(kotakTeks));
+      const kandidat = teks[n - 1].filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str));
+      if (kandidat.length) {
+        const hit = kandidat.reduce((a, b) => (b.y0 < a.y0 ? b : a));
+        jangkar.push({ halaman: n - 1, x: hit.x0, yBawah: hit.y0 });
       }
     }
-    return null;
+    return { teks, jangkar };
+  }
+
+  // Tempelan tidak boleh menimpa tulisan apa pun (selisih 1 pt ditoleransi)
+  function cekTabrakan(kotak, teks, nama, halaman) {
+    for (const t of teks) {
+      if (kotak.x0 < t.x1 - 1 && kotak.x1 > t.x0 + 1 && kotak.y0 < t.y1 - 1 && kotak.y1 > t.y0 + 1) {
+        throw new Error(`${nama} akan menimpa tulisan "${t.str.slice(0, 40)}" di halaman ${halaman}; tempel manual`);
+      }
+    }
   }
 
   async function sematkan(pdf, aset) {
@@ -158,45 +176,68 @@
   }
 
   async function tempel(pdfBytes, qr, gembok, footer) {
-    const j = await cariJangkar(pdfBytes);
-    if (!j) throw new Error(`teks ${TATA_LETAK.jangkar.join(' / ')} tidak ditemukan`);
+    const { teks, jangkar } = await cariJangkar(pdfBytes);
+    if (!jangkar.length) throw new Error('baris jabatan penanda tangan (mis. "Kepala,") tidak ditemukan; tempel manual');
     let pdf = await PDFLib.PDFDocument.load(pdfBytes);
     const jumlahHalaman = pdf.getPageCount();
     const ukuranGambar = async (aset) => { const i = await sematkan(await PDFLib.PDFDocument.create(), aset); return { width: i.width, height: i.height }; };
     const g = muat(await ukuranGambar(gembok), TATA_LETAK.gembok.lebar, TATA_LETAK.gembok.tinggi);
     const F = TATA_LETAK.footer, f = muat(await ukuranGambar(footer), F.lebar, F.tinggi);
-    const q = TATA_LETAK.qr.lebar, H = pdf.getPage(j.halaman).getHeight();
+    const q = TATA_LETAK.qr.lebar;
     const butuh = TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height);
     const batasBawah = F.jarakBawah + f.height + TATA_LETAK.celahAtasFooter;
-    let atas = j.yBawah - TATA_LETAK.jarakBawahJangkar, x = j.x, skala = 1;
+    const skalaHal = new Map(); // halaman → { skala, tx, ty }
 
-    if (j.yBawah - butuh < batasBawah) {
-      // perkecil isi halaman dengan titik tetap di sudut kiri-atas (margin kiri tetap, kop surat tetap di atas)
-      skala = (H - butuh - batasBawah) / (H - j.yBawah);
+    // 1) halaman yang blok TTD-nya terlalu dekat ke bawah: isi halaman diperkecil seragam (titik tetap kiri-atas)
+    for (const j of jangkar) {
+      if (j.yBawah - butuh >= batasBawah) continue;
+      const H = pdf.getPage(j.halaman).getHeight();
+      let skala = (H - butuh - batasBawah) / (H - j.yBawah);
       if (skala < TATA_LETAK.skalaMin) {
         throw new Error(`blok TTD di halaman ${j.halaman + 1} terlalu dekat ke bawah; perlu diperkecil ke ${Math.round(skala * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%)`);
       }
       skala = Math.floor(skala * 1000) / 1000;
       const tx = F.x * (1 - skala), ty = H * (1 - skala);
-      const pg = pdf.getPage(j.halaman);
+      const p = pdf.getPage(j.halaman);
       // translateContent lalu scaleContent → titik p menjadi skala*p + (tx, ty)
-      pg.translateContent(tx / skala, ty / skala);
-      pg.scaleContent(skala, skala);
-      // simpan & muat ulang, supaya tempelan di bawah jadi lapisan terpisah di luar transformasi skala
-      pdf = await PDFLib.PDFDocument.load(await pdf.save());
-      x = skala * j.x + tx;
-      atas = skala * j.yBawah + ty - TATA_LETAK.jarakBawahJangkar;
+      p.translateContent(tx / skala, ty / skala);
+      p.scaleContent(skala, skala);
+      skalaHal.set(j.halaman, { skala, tx, ty });
     }
-    const pg = pdf.getPage(j.halaman);
-    if (x + g.width > pg.getWidth()) throw new Error(`gembok keluar dari tepi kanan halaman ${j.halaman + 1}`);
+    // simpan & muat ulang, supaya tempelan jadi lapisan terpisah di luar transformasi skala
+    if (skalaHal.size) pdf = await PDFLib.PDFDocument.load(await pdf.save());
 
+    // 2) hitung semua posisi, lalu pastikan tidak ada tulisan yang tertimpa sebelum menempel apa pun
+    const geser = (t, n) => { const s = skalaHal.get(n); return s ? { ...t, x0: s.skala * t.x0 + s.tx, x1: s.skala * t.x1 + s.tx, y0: s.skala * t.y0 + s.ty, y1: s.skala * t.y1 + s.ty } : t; };
+    const teksHal = (n) => teks[n].map((t) => geser(t, n));
+    const rencana = jangkar.map((j) => {
+      const s = skalaHal.get(j.halaman) || { skala: 1, tx: 0, ty: 0 };
+      const x = s.skala * j.x + s.tx, atas = s.skala * j.yBawah + s.ty - TATA_LETAK.jarakBawahJangkar;
+      if (x + g.width > pdf.getPage(j.halaman).getWidth()) throw new Error(`gembok keluar dari tepi kanan halaman ${j.halaman + 1}`);
+      const kQr = { x0: TATA_LETAK.qr.x, x1: TATA_LETAK.qr.x + q, y0: atas - q, y1: atas };
+      const kGembok = { x0: x, x1: x + g.width, y0: atas - g.height, y1: atas };
+      cekTabrakan(kQr, teksHal(j.halaman), 'QR code', j.halaman + 1);
+      cekTabrakan(kGembok, teksHal(j.halaman), 'Gembok', j.halaman + 1);
+      return { j, kQr, kGembok };
+    });
+    // footer: dari halaman 1 sampai halaman tanda tangan terakhir; lampiran di belakangnya tidak disentuh
+    const halFooter = pdf.getPages().slice(0, Math.max(...jangkar.map((j) => j.halaman)) + 1);
+    const kFooter = { x0: F.x, x1: F.x + f.width, y0: F.jarakBawah, y1: F.jarakBawah + f.height };
+    halFooter.forEach((p, n) => cekTabrakan(kFooter, teksHal(n), 'Footer', n + 1));
+
+    // 3) tempel
     const [iQr, iGembok, iFooter] = [await sematkan(pdf, qr), await sematkan(pdf, gembok), await sematkan(pdf, footer)];
-    pg.drawImage(iQr, { x: TATA_LETAK.qr.x, y: atas - q, width: q, height: q });
-    pg.drawImage(iGembok, { x, y: atas - g.height, ...g });
-    for (const p of pdf.getPages()) p.drawImage(iFooter, { x: F.x, y: F.jarakBawah, ...f });
+    for (const { j, kQr, kGembok } of rencana) {
+      const p = pdf.getPage(j.halaman);
+      p.drawImage(iQr, { x: kQr.x0, y: kQr.y0, width: q, height: q });
+      p.drawImage(iGembok, { x: kGembok.x0, y: kGembok.y0, ...g });
+    }
+    for (const p of halFooter) p.drawImage(iFooter, { x: F.x, y: F.jarakBawah, ...f });
     // hanya menggambar di halaman yang ada; jumlah halaman tidak boleh berubah
     if (pdf.getPageCount() !== jumlahHalaman) throw new Error('jumlah halaman berubah');
-    return { bytes: await pdf.save(), halaman: j.halaman + 1, skala };
+    const halaman = jangkar.map((j) => j.halaman + 1).join(' & ');
+    const catatan = [...skalaHal].map(([n, s]) => `isi halaman ${n + 1} diperkecil ke ${(s.skala * 100).toFixed(1)}% agar muat`).join('; ');
+    return { bytes: await pdf.save(), halaman, catatan };
   }
 
   // ---------- baca tabel ----------
@@ -287,8 +328,8 @@
       try {
         const r = await tempel(b.pdf, b.qr, b.gembok, b.footer);
         zip.file(b.nama, r.bytes);
-        laporan.push([b.no, b.perihal, b.nama, r.halaman, 'OK', r.skala < 1 ? `isi halaman ${r.halaman} diperkecil ke ${(r.skala * 100).toFixed(1)}% agar muat` : '']);
-        if (r.skala < 1) log(`Catatan ${b.no}: isi halaman ${r.halaman} diperkecil ke ${(r.skala * 100).toFixed(1)}% agar muat.`);
+        laporan.push([b.no, b.perihal, b.nama, r.halaman, 'OK', r.catatan]);
+        if (r.catatan) log(`Catatan ${b.no}: ${r.catatan}.`);
         ok++;
       } catch (e) {
         laporan.push([b.no, b.perihal, '', '', 'GAGAL', e.message]);

@@ -24,13 +24,17 @@
 **Pengaman**
 - QR, gembok dan footer diambil dari baris yang sama dengan suratnya. QR identik di dua baris,
   atau ada tautan/berkas yang gagal diambil → **seluruh proses dibatalkan** sebelum ada surat yang diproses.
-- Gembok & footer JPG dari SUMAKER otomatis dibuat transparan (tidak ada kotak abu-abu).
+- QR + gembok ditempel di **setiap halaman yang punya baris jabatan** "Kepala," (juga "Plt./Plh. Kepala,",
+  "a.n. Kepala …,"), tepat di bawah baris itu — sama seperti surat hasil SUMAKER (surat tugas + lampiran).
+  Halaman tambahan bertanda tangan basah di belakangnya (mis. SPPD "Pejabat Pembuat Komitmen") tidak disentuh.
+- Footer ditempel dari halaman 1 sampai halaman tanda tangan terakhir.
+- **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
+  dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
+- Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
+  supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
 - Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).
-- QR & gembok ditaruh di bawah tulisan "Kepala," (atau "Plt./Plh. Kepala,", "Pejabat Pembuat Komitmen").
-  Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
-  supaya muat, tanpa menggeser teks satu per satu; dicatat di `laporan.csv`. Kalau tetap tidak muat,
-  surat itu GAGAL dan perlu dirapikan manual. Teks jangkar tidak ada → GAGAL, posisi tidak ditebak.
-- Semua proses terjadi di browser Kakak; tidak ada data yang dikirim ke luar SUMAKER.
+- Gembok & footer JPG dari SUMAKER otomatis dibuat transparan (tidak ada kotak abu-abu).
+- Semua proses terjadi di browser Anda sendiri; tidak ada data yang dikirim ke luar SUMAKER.
 - Kalau ada yang tidak jalan, klik **Cek tautan** dan kirim isi kotaknya ke pembuat skrip.
 
 ## Alternatif: program Python (berkas sudah diunduh manual)
