@@ -26,8 +26,8 @@
   atau ada tautan/berkas yang gagal diambil → **seluruh proses dibatalkan** sebelum ada surat yang diproses.
 - QR + gembok ditempel di **setiap halaman yang punya baris jabatan** "Kepala," (juga "Plt./Plh. Kepala,",
   "a.n. Kepala …,"), tepat di bawah baris itu — sama seperti surat hasil SUMAKER (surat tugas + lampiran).
-  Halaman tambahan bertanda tangan basah di belakangnya (mis. SPPD "Pejabat Pembuat Komitmen") tidak disentuh.
-- Footer ditempel dari halaman 1 sampai halaman tanda tangan terakhir.
+  Halaman tambahan bertanda tangan basah (mis. SPPD "Pejabat Pembuat Komitmen") tidak diberi QR/gembok.
+- Footer ditempel di bagian bawah **semua halaman** dokumen (8 halaman → 8 footer).
 - **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
   dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
 - Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
