@@ -1,5 +1,44 @@
 # Barcode Surat Massal
 
+## Cara tercepat: plugin browser langsung di SUMAKER
+
+`sumaker-barcode.user.js` berjalan di halaman **Tanda Tangan Elektronik**
+(`sumaker.kemenkum.go.id/main/dse`). Untuk setiap baris surat, plugin mengambil tautan
+**Surat, QRCode, Logo SE, Footer** milik baris itu sendiri, menempelkannya, lalu mengunduh satu ZIP.
+
+**Pasang (sekali saja)** — panduan bergambar: [`tutorial-pasang-plugin.jpg`](tutorial-pasang-plugin.jpg)
+1. Pasang ekstensi **Tampermonkey** di Chrome/Edge.
+2. Buka Tampermonkey → *Create a new script*, hapus isinya, tempel seluruh isi `sumaker-barcode.user.js`, simpan.
+3. Buka halaman Tanda Tangan Elektronik di SUMAKER. Kotak kuning **Barcode Massal** muncul di kanan bawah, dan kotak centang muncul di kolom NO.
+
+**Pakai**
+1. Atur *Show entries* supaya surat yang mau dibarcode tampil di halaman.
+2. Pilih suratnya lewat kotak centang di kolom **NO**:
+   - satu atau beberapa surat → centang baris yang diinginkan;
+   - semua surat (massal) → centang kotak di judul kolom **NO**.
+3. Klik **Barcode surat terpilih (N)**. Hasilnya `surat-barcode-<tanggal>.zip`:
+   - satu PDF per surat, **nama file = Perihal Surat** (perihal kembar diberi akhiran `(2)`, `(3)`, …);
+   - `laporan.csv`: status OK/GAGAL tiap surat.
+4. Unggah tiap PDF lewat **Kirim Surat** di baris yang perihalnya sama.
+
+**Pengaman**
+- QR, gembok dan footer diambil dari baris yang sama dengan suratnya. QR identik di dua baris,
+  atau ada tautan/berkas yang gagal diambil → **seluruh proses dibatalkan** sebelum ada surat yang diproses.
+- QR + gembok ditempel di **setiap halaman yang punya baris jabatan** "Kepala," (juga "Plt./Plh. Kepala,",
+  "a.n. Kepala …,"), tepat di bawah baris itu — sama seperti surat hasil SUMAKER (surat tugas + lampiran).
+  Halaman tambahan bertanda tangan basah di belakangnya (mis. SPPD "Pejabat Pembuat Komitmen") tidak disentuh.
+- Footer ditempel dari halaman 1 sampai halaman tanda tangan terakhir.
+- **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
+  dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
+- Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
+  supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
+- Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).
+- Gembok & footer JPG dari SUMAKER otomatis dibuat transparan (tidak ada kotak abu-abu).
+- Semua proses terjadi di browser Anda sendiri; tidak ada data yang dikirim ke luar SUMAKER.
+- Kalau ada yang tidak jalan, klik **Cek tautan** dan kirim isi kotaknya ke pembuat skrip.
+
+## Alternatif: program Python (berkas sudah diunduh manual)
+
 Menempelkan **QR, gembok BSrE, dan footer hasil unduhan SUMAKER** ke banyak surat PDF sekaligus,
 di posisi yang sama dengan surat tugas BHP Medan (QR di kiri, gembok di bawah "Kepala,", footer di bawah halaman).
 Uji coba: 80 surat selesai dalam < 1 detik.
@@ -46,5 +85,4 @@ Salin `config.contoh.json` → `config.json`, ubah angkanya (satuan point; A4 le
 `--config config.json`. Contoh: teks jangkar lain, ukuran QR, footer hanya di halaman TTD (`"halaman": "ttd"`).
 
 ## Belum
-Unduh aset dan unggah ulang ke SUMAKER masih manual. Setelah ada rekaman layar prosesnya, langkah itu
-bisa diotomatisasi lewat plugin browser.
+Unggah ulang lewat "Kirim Surat" masih manual (formnya belum diketahui).
