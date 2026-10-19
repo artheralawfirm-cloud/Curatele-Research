@@ -168,7 +168,14 @@
     for (let n = 1; n <= doc.numPages; n++) {
       const items = (await (await doc.getPage(n)).getTextContent()).items.filter((it) => it.str && it.str.trim());
       teks.push(items.map(kotakTeks));
-      const kandidat = teks[n - 1].filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str));
+      // Judul SK "KEPALA BALAI HARTA PENINGGALAN MEDAN," (huruf kapital, langsung disusul "Menimbang")
+      // bukan blok tanda tangan: di bawah baris jabatan penanda tangan selalu ada ruang kosong untuk TTD.
+      const ruangBawah = (k) => {
+        const b = teks[n - 1].filter((t) => t !== k && t.y1 < k.y0 && t.x0 < k.x0 + TATA_LETAK.gembok.lebar && t.x1 > k.x0);
+        return b.length ? k.y0 - Math.max(...b.map((t) => t.y1)) : Infinity;
+      };
+      const judul = (k) => k.str === k.str.toUpperCase() && ruangBawah(k) < 20;
+      const kandidat = teks[n - 1].filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str) && !judul(k));
       if (kandidat.length) {
         const hit = kandidat.reduce((a, b) => (b.y0 < a.y0 ? b : a));
         jangkar.push({ halaman: n - 1, x: hit.x0, yBawah: hit.y0 });
