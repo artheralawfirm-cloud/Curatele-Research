@@ -6,20 +6,39 @@
 (`sumaker.kemenkum.go.id/main/dse`). Untuk setiap baris surat, plugin mengambil tautan
 **Surat, QRCode, Logo SE, Footer** milik baris itu sendiri, menempelkannya, lalu mengunduh satu ZIP.
 
-**Pasang (sekali saja)** — panduan bergambar: [`tutorial-pasang-plugin.jpg`](tutorial-pasang-plugin.jpg)
-1. Pasang ekstensi **Tampermonkey** di Chrome/Edge.
+**Pasang (sekali saja per komputer)** — panduan bergambar: [`tutorial-pasang-plugin.jpg`](tutorial-pasang-plugin.jpg)
+1. Pasang ekstensi **Tampermonkey** di Chrome/Edge/Firefox. Di Chrome/Edge versi baru, nyalakan juga
+   **Allow User Scripts** (Kelola ekstensi → Tampermonkey → Detail) atau **Developer mode**.
 2. Buka Tampermonkey → *Create a new script*, hapus isinya, tempel seluruh isi `sumaker-barcode.user.js`, simpan.
-3. Buka halaman Tanda Tangan Elektronik di SUMAKER. Kotak kuning **Barcode Massal** muncul di kanan bawah, dan kotak centang muncul di kolom NO.
+3. Buka halaman Tanda Tangan Elektronik di SUMAKER. Kotak kuning **Barcode Massal** muncul di kanan bawah,
+   dan kotak centang muncul di kolom NO.
+4. **Pasang helper Word/Excel**: di kotak biru, klik **Pasang helper (sekali saja)** → ekstrak ZIP yang terunduh →
+   klik dua kali **PASANG-HELPER** → tunggu tulisan **BERHASIL**. Kotak biru berubah jadi ✔ hijau.
+   Helper menyala sendiri setiap komputer dinyalakan. Tidak perlu hak admin.
 
-**Pakai**
+**Pakai (setiap hari)**
 1. Atur *Show entries* supaya surat yang mau dibarcode tampil di halaman.
-2. Pilih suratnya lewat kotak centang di kolom **NO**:
-   - satu atau beberapa surat → centang baris yang diinginkan;
-   - semua surat (massal) → centang kotak di judul kolom **NO**.
-3. Klik **Barcode surat terpilih (N)**. Hasilnya `surat-barcode-<tanggal>.zip`:
-   - satu PDF per surat, **nama file = Perihal Surat** (perihal kembar diberi akhiran `(2)`, `(3)`, …);
-   - `laporan.csv`: status OK/GAGAL tiap surat.
+2. Centang suratnya di kolom **NO** (satu, beberapa, atau semua lewat kotak di judul kolom NO).
+3. Klik tombol kuning **Barcode surat terpilih (N)**. Selesai: `surat-barcode-<tanggal>.zip` terunduh, berisi satu
+   **PDF final** per surat (**nama file = Perihal Surat**) dan `laporan.csv`.
+   - Word (.docx/.doc) dan Excel (.xlsx/.xls) diubah ke PDF oleh **Microsoft Word/Excel di komputer itu** lewat helper,
+     jadi tampilannya persis seperti dibuka di Word/Excel. Sheet Excel diatur pas satu lebar halaman (mendatar bila
+     tabelnya lebar). Tanpa Microsoft Office, LibreOffice dipakai bila ada.
+   - PDF langsung dibarcode.
+   - Surat yang gagal diubah (mis. file rusak atau dikunci sandi) ditandai GAGAL di `laporan.csv`; surat lain tetap jadi.
 4. Unggah tiap PDF lewat **Kirim Surat** di baris yang perihalnya sama.
+
+**Helper Word/Excel** (`helper/`)
+- Berjalan tersembunyi dan hanya bisa dihubungi dari komputer itu sendiri (`127.0.0.1:48653`), hanya untuk halaman
+  SUMAKER. Surat tidak dikirim ke mana pun; berkas sementara langsung dihapus. Makro di dokumen tidak dijalankan.
+- Cocok untuk Windows 7, 8, 10, 11 (PowerShell 2.0 ke atas), Office 2010 ke atas (32/64-bit), tanpa hak admin.
+- Menghapus: klik dua kali **HAPUS-HELPER** dari ZIP pemasang yang sama.
+- Belum terpasang / bukan Windows? Surat Word/Excel tetap bisa lewat cara cadangan: plugin mengunduh
+  `surat-word-excel-<tanggal>.zip` → ekstrak → klik dua kali **UBAH-KE-PDF** → klik tombol hijau, pilih semua PDF di
+  folder `pdf-hasil` (kode `[#xxxxxxxx]` di nama file mencocokkan tiap PDF dengan barisnya — jangan ubah nama file).
+- Komputer kantor yang PowerShell-nya dikunci oleh IT (AppLocker/Constrained Language) tidak bisa menjalankan helper;
+  minta IT mengizinkan `%LOCALAPPDATA%\BarcodeSumaker\helper-barcode.ps1`, atau pakai cara cadangan.
+- Setelah mengubah berkas di `helper/`, jalankan `python helper/bangun.py` supaya isinya ikut tertanam di plugin.
 
 **Pengaman**
 - QR, gembok dan footer diambil dari baris yang sama dengan suratnya. QR identik di dua baris,
@@ -30,11 +49,13 @@
 - Footer ditempel di bagian bawah **semua halaman** dokumen (8 halaman → 8 footer).
 - **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
   dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
+- Kalau ruang antara "Kepala," dan nama sempit (mis. tabel Excel yang dikecilkan), QR + gembok **diperkecil
+  secukupnya** (paling kecil 50%) supaya pas; dicatat di `laporan.csv`. Lebih sempit lagi → GAGAL.
 - Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
   supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
 - Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).
 - Gembok & footer JPG dari SUMAKER otomatis dibuat transparan (tidak ada kotak abu-abu).
-- Semua proses terjadi di browser Anda sendiri; tidak ada data yang dikirim ke luar SUMAKER.
+- Semua proses terjadi di komputer Anda sendiri (browser + helper); tidak ada data yang dikirim ke luar SUMAKER.
 - Kalau ada yang tidak jalan, klik **Cek tautan** dan kirim isi kotaknya ke pembuat skrip.
 
 ## Alternatif: program Python (berkas sudah diunduh manual)
