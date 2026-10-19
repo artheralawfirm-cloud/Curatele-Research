@@ -56,8 +56,16 @@
 - Footer ditempel di bagian bawah **semua halaman** dokumen (8 halaman → 8 footer).
 - **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
   dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
-- QR + gembok **selalu ukuran penuh**, seperti surat hasil SUMAKER. Kalau ruang antara "Kepala," dan nama
-  kurang, **nama (dan semua yang di bawahnya) digeser turun** secukupnya; dicatat di `laporan.csv`.
+- QR + gembok **selalu ukuran penuh**, seperti surat hasil SUMAKER. Kalau ruang antara "Kepala," dan nama kurang:
+  - surat/lampiran **Word (.docx)**: ruangnya **ditambah langsung di Word** (paragraf kosong setinggi kekurangannya
+    disisipkan di bawah "Kepala,", lalu diubah ke PDF lagi), jadi tampilannya seperti surat biasa — garis tabel,
+    kaki halaman dan tautan tetap utuh. Dipakai hanya bila jumlah halaman dan letak tanda tangan tidak berubah;
+  - selain itu (surat PDF, atau cara di Word tidak berhasil): **nama (dan semua yang di bawahnya) digeser turun** di
+    PDF. Garis tabel yang tegak disambung; kaki halaman Word (nomor halaman, garis, gambar) tetap di tempat.
+  Semua dicatat di `laporan.csv`.
+- Ruang tanda tangan **tidak dibuat-buat**: kalau di bawah "Kepala," tidak ada satu baris kosong pun (jabatan dua
+  baris, atau baris isi surat yang mirip jabatan), ada cap/gambar/garis melintang di ruang itu, atau tulisan di
+  sampingnya (mis. daftar Tembusan) akan terbelah → GAGAL, tempel manual.
 - Kalau blok tanda tangan (atau nama yang digeser) jadi terlalu dekat ke footer, **isi halaman itu diperkecil
   seragam** (paling kecil 92%) supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
 - Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).

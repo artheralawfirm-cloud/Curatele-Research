@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SUMAKER Barcode Massal
 // @namespace    bhp-medan
-// @version      0.6.0
+// @version      0.6.1
 // @description  Tempel QR, gembok (Logo SE) dan footer SUMAKER ke banyak surat sekaligus di halaman Tanda Tangan Elektronik.
 // @match        https://sumaker.kemenkum.go.id/main/dse*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js
@@ -228,7 +228,8 @@
   }
 
   // Setiap halaman yang punya blok tanda tangan (surat, lampiran, SPPD, …) mendapat QR + gembok sendiri,
-  // di bawah baris jabatan paling bawah pada halaman itu.
+  // di bawah baris jabatan paling bawah pada halaman itu. `doc` (pdf.js) dikembalikan untuk dipakai lagi;
+  // pemanggil wajib menutupnya dengan doc.destroy().
   async function cariJangkar(pdfBytes) {
     const doc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
     const teks = [], jangkar = [];
@@ -245,10 +246,10 @@
       const kandidat = barisTeks(teks[n - 1]).filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str) && !judul(k));
       if (kandidat.length) {
         const hit = kandidat.reduce((a, b) => (b.y0 < a.y0 ? b : a));
-        jangkar.push({ halaman: n - 1, x: hit.x0, yBawah: hit.y0 });
+        jangkar.push({ halaman: n - 1, x: hit.x0, x1: hit.x1, yBawah: hit.y0, tinggi: hit.y1 - hit.y0, str: hit.str });
       }
     }
-    return { teks, jangkar };
+    return { doc, teks, jangkar };
   }
 
   // Tempelan tidak boleh menimpa tulisan apa pun (selisih 1 pt ditoleransi)
@@ -269,76 +270,224 @@
     return { width: img.width * s, height: img.height * s };
   }
 
+  async function ukuranGambar(aset) {
+    const i = await sematkan(await PDFLib.PDFDocument.create(), aset);
+    return { width: i.width, height: i.height };
+  }
+
+  // Ruang kosong di bawah baris jabatan sampai tulisan teratas di kolom tanda tangan (biasanya nama penanda tangan).
+  // Kolom tanda tangan = selebar baris jabatan (paling sempit selebar gembok), supaya nama yang ditaruh di tengah
+  // tetap terhitung. Tulisan di kolom lain (mis. Tembusan di kiri) bukan nama; QR yang mengenainya tetap dicek.
+  function ruangTtd(j, semua, lebarGembok) {
+    const kanan = Math.max(j.x1, j.x + lebarGembok);
+    const bawah = semua.filter((t) => t.y1 < j.yBawah && t.x0 < kanan && t.x1 > j.x);
+    if (!bawah.length) return { ruang: Infinity, kanan };
+    const atasNama = Math.max(...bawah.map((t) => t.y1));
+    const ruang = j.yBawah - atasNama;
+    // Tanpa satu baris kosong pun di bawahnya (jabatan dua baris "Kepala …," / "selaku …", atau baris isi surat yang
+    // kebetulan mirip jabatan) ini bukan ruang tanda tangan: jangan dibuatkan ruang.
+    if (ruang < j.tinggi) {
+      throw new Error(`tidak ada baris kosong di bawah "${j.str.slice(0, 40)}" di halaman ${j.halaman + 1} (jabatan dua baris, atau bukan blok tanda tangan); tempel manual`);
+    }
+    return { ruang, atasNama, kanan };
+  }
+
+  // Selang kosong terbesar di antara lo dan hi yang tidak dilintasi kotak teks mana pun di halaman itu (min. 1 pt)
+  function celahKosong(semua, lo, hi) {
+    const tutup = semua.filter((t) => t.y1 > lo && t.y0 < hi).map((t) => [t.y0, t.y1]).sort((a, b) => a[0] - b[0]);
+    let terbaik = null, dari = lo;
+    for (const [a, b] of [...tutup, [hi, hi]]) {
+      if (a - dari > (terbaik ? terbaik.hi - terbaik.lo : 1)) terbaik = { lo: dari, hi: a };
+      dari = Math.max(dari, b);
+    }
+    return terbaik;
+  }
+
+  // Halaman digambar ke kanvas (2x) untuk melihat garis, kotak & gambar yang bukan teks (mis. garis tabel, cap).
+  async function petaTinta(doc, n) {
+    const hal = await doc.getPage(n + 1);
+    const vp = hal.getViewport({ scale: 2, rotation: 0 });
+    const kanvas = document.createElement('canvas');
+    kanvas.width = Math.ceil(vp.width);
+    kanvas.height = Math.ceil(vp.height);
+    const ctx = kanvas.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, kanvas.width, kanvas.height);
+    await hal.render({ canvasContext: ctx, viewport: vp }).promise;
+    const { data } = ctx.getImageData(0, 0, kanvas.width, kanvas.height);
+    const gelap = new Uint8Array(kanvas.width * kanvas.height);
+    for (let i = 0, p = 0; i < gelap.length; i++, p += 4) gelap[i] = Math.min(data[p], data[p + 1], data[p + 2]) < 235 ? 1 : 0;
+    return bacaTinta(gelap, kanvas.width, kanvas.height, (y) => vp.convertToViewportPoint(0, y)[1]);
+  }
+
+  // gelap: 1 piksel per byte (1 = bertinta), baris demi baris; keBaris: y PDF → baris piksel
+  function bacaTinta(gelap, w, h, keBaris) {
+    const baris = (y) => Math.min(h - 1, Math.max(0, Math.round(keBaris(y))));
+    const sama = (a, b) => {
+      for (let x = 0; x < w; x++) if (gelap[a * w + x] !== gelap[b * w + x]) return false;
+      return true;
+    };
+    const kosong = (y) => {
+      const r = baris(y) * w;
+      for (let x = 0; x < w; x++) if (gelap[r + x]) return false;
+      return true;
+    };
+    // semua baris piksel dari y0 sampai y1 sama dengan baris di y (kosong, atau hanya dilintasi garis tegak)
+    const polos = (y0, y1, y) => {
+      const acuan = baris(y);
+      for (let r = baris(y1); r <= baris(y0); r++) if (!sama(r, acuan)) return false;
+      return true;
+    };
+    // hanya garis tegak lurus (garis tabel) yang sama persis ±6 pt; tepi lingkaran cap/stempel tidak lolos
+    return { kosong, polos, tegak: (y) => polos(y - 6, y + 6, y) };
+  }
+
+  // Rencana satu halaman TTD supaya QR + gembok muat ukuran penuh, atau null bila halaman tidak perlu diubah.
+  // Hasil { skala, tx, ty, potong, potongBawah, turun, regang }: titik (x, y) → skala*(x, y − d) + (tx, ty), dengan
+  // d = turun untuk bagian di antara potongBawah dan potong (nama, NIP, tembusan, …), selain itu d = 0 (bagian atas
+  // dan kaki halaman tetap di tempat). regang: garis tegak (mis. garis tabel) disambung melintasi ruang tambahan.
+  async function rencanakan(j, semua, H, U, tinta) {
+    const hal = j.halaman + 1;
+    const tolak = (alasan) => { throw new Error(`${alasan} di halaman ${hal}; tempel manual`); };
+    const { ruang, atasNama, kanan } = ruangTtd(j, semua, U.g.width);
+    const perlu = U.butuh + TATA_LETAK.celahNama;
+    const kurangPada = (s) => Math.max(0, Math.ceil(perlu / s - ruang));
+    const bulat = (s) => Math.floor(Math.min(1, s) * 1000) / 1000;
+    const batasJangkar = (H - U.butuh - U.batasBawah) / (H - j.yBawah);
+    const cekSkala = (s) => {
+      if (s < TATA_LETAK.skalaMin) {
+        tolak(`blok TTD tidak muat untuk QR & gembok ukuran penuh; isi halaman perlu diperkecil ke ${Math.round(s * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%)`);
+      }
+    };
+    const hasil = (skala, o) => ({ skala, tx: U.F.x * (1 - skala), ty: H * (1 - skala), potong: 0, potongBawah: 0, turun: 0, regang: false, ...o });
+
+    // a) blok TTD terlalu dekat ke footer: isi halaman diperkecil seragam; cukup bila ruang di bawah jabatan lega
+    let skala = bulat(batasJangkar);
+    if (!kurangPada(skala)) {
+      cekSkala(skala);
+      return skala < 1 ? hasil(skala, {}) : null;
+    }
+
+    // b) ruang kurang: garis potong di ruang kosong di atas nama. Tidak boleh membelah tulisan mana pun; garis tabel,
+    //    kotak atau gambar juga tidak, kecuali garis tegak murni (disambung dengan meregangkan irisan tipis).
+    const celah = celahKosong(semua, atasNama, j.yBawah);
+    if (!celah) tolak('tidak ada baris kosong di antara "Kepala," dan nama untuk memberi tempat QR & gembok');
+    const r = await tinta();
+    const tengah = (celah.lo + celah.hi) / 2, calon = [];
+    for (let d = 0; d <= (celah.hi - celah.lo) / 2 - 0.5; d += 0.25) calon.push(tengah - d, tengah + d);
+    let potong = calon.find((y) => r.kosong(y)), regang = false;
+    if (potong === undefined) {
+      potong = calon.find((y) => r.tegak(y));
+      regang = potong !== undefined;
+    }
+    if (potong === undefined) tolak('garis atau gambar melintang di ruang tanda tangan');
+
+    // c) baris berurutan di kolom lain (mis. daftar Tembusan di samping tanda tangan) tidak boleh terbelah
+    const lain = semua.filter((t) => !(t.x0 < kanan && t.x1 > j.x));
+    const atasP = lain.filter((t) => t.y0 >= potong && t.y0 - potong < t.y1 - t.y0);
+    const bawahP = lain.filter((t) => t.y1 <= potong && potong - t.y1 < t.y1 - t.y0);
+    if (atasP.some((a) => bawahP.some((b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 - b.y1 < 0.6 * (a.y1 - a.y0)))) {
+      tolak('tulisan di samping tanda tangan akan terbelah');
+    }
+
+    // d) yang digeser: semua tulisan di bawah garis potong, kecuali kaki halaman Word (sejajar/di bawah footer)
+    const dibawah = semua.filter((t) => t.y1 <= potong);
+    const isi = dibawah.filter((t) => t.y1 > U.batasBawah);
+    const lantai = Math.max(0, ...dibawah.filter((t) => t.y1 <= U.batasBawah).map((t) => t.y1));
+    if (!isi.length) tolak('nama penanda tangan terlalu dekat ke footer');
+    const terendah = Math.min(...isi.map((t) => t.y0));
+
+    // e) bila tulisan yang digeser jadi terlalu dekat ke footer, isi halaman diperkecil seragam
+    let turun;
+    for (;;) {
+      turun = kurangPada(skala);
+      const s = bulat(Math.min(batasJangkar, (H - U.batasBawah) / (H - terendah + turun)));
+      if (s === skala) break;
+      skala = s;
+      if (skala < TATA_LETAK.skalaMin) break;
+    }
+    cekSkala(skala);
+
+    // f) batas bawah bagian yang digeser: tepat di bawah tulisan terendah (garis/gambar yang menempel ikut digeser).
+    //    Tempat jatuhnya (turun pt di bawahnya) harus kosong, dan tidak boleh ada tinta yang jatuh ke dekat footer.
+    const ty = H * (1 - skala), yFooter = (U.batasBawah - ty) / skala + turun;
+    let potongBawah;
+    for (let y = terendah - 0.5; y - turun > lantai; y -= 0.5) {
+      if (!(r.kosong(y) || r.tegak(y)) || !r.polos(y - turun, y, y)) continue;
+      if (y < yFooter && !r.polos(y, yFooter, y)) break;
+      potongBawah = y;
+      break;
+    }
+    if (potongBawah === undefined) tolak('tidak ada tempat kosong di bawah tanda tangan untuk menggeser nama');
+    return hasil(skala, { potong, potongBawah, turun, regang });
+  }
+
   async function tempel(pdfBytes, qr, gembok, footer) {
-    const { teks, jangkar } = await cariJangkar(pdfBytes);
+    const { doc, teks, jangkar } = await cariJangkar(pdfBytes);
+    try {
+      return await tempelKe(pdfBytes, doc, teks, jangkar, qr, gembok, footer);
+    } finally {
+      doc.destroy();
+    }
+  }
+
+  async function tempelKe(pdfBytes, doc, teks, jangkar, qr, gembok, footer) {
     if (!jangkar.length) throw new Error('baris jabatan penanda tangan (mis. "Kepala,") tidak ditemukan; tempel manual');
     const pdf = await PDFLib.PDFDocument.load(pdfBytes);
     const jumlahHalaman = pdf.getPageCount();
-    const ukuranGambar = async (aset) => { const i = await sematkan(await PDFLib.PDFDocument.create(), aset); return { width: i.width, height: i.height }; };
+    const F = TATA_LETAK.footer;
     const g = muat(await ukuranGambar(gembok), TATA_LETAK.gembok.lebar, TATA_LETAK.gembok.tinggi);
-    const F = TATA_LETAK.footer, f = muat(await ukuranGambar(footer), F.lebar, F.tinggi);
+    const f = muat(await ukuranGambar(footer), F.lebar, F.tinggi);
     const q = TATA_LETAK.qr.lebar;
-    const batasBawah = F.jarakBawah + f.height + TATA_LETAK.celahAtasFooter;
-    const butuh = TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height);
-    // halaman → { skala, tx, ty, potong, turun }: bagian di bawah garis `potong` digeser turun `turun` pt,
-    // lalu seluruh isi halaman diperkecil ke `skala` (titik tetap kiri-atas): (x, y) → skala*(x, y) + (tx, ty)
-    const ubahHal = new Map();
+    const U = { F, f, g, q, batasBawah: F.jarakBawah + f.height + TATA_LETAK.celahAtasFooter, butuh: TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height) };
 
-    // 0) QR + gembok selalu ukuran penuh, seperti surat hasil SUMAKER. Hitung per halaman TTD:
-    //    - ruang antara "Kepala," dan nama kurang → nama (dan semua yang di bawahnya) digeser turun;
-    //    - blok TTD atau tulisan yang tergeser jadi terlalu dekat ke footer → isi halaman diperkecil seragam.
+    // 0) QR + gembok selalu ukuran penuh, seperti surat hasil SUMAKER: rencana per halaman TTD (lihat rencanakan)
+    const ubahHal = new Map();
     for (const j of jangkar) {
-      const H = pdf.getPage(j.halaman).getHeight();
-      const semua = teks[j.halaman];
-      const kolomTtd = (t) => (t.x0 < TATA_LETAK.qr.x + q && t.x1 > TATA_LETAK.qr.x) || (t.x0 < j.x + g.width && t.x1 > j.x);
-      const bawah = semua.filter((t) => t.y1 < j.yBawah && kolomTtd(t));
-      let potong = 0, ruang = Infinity, terendah = Infinity;
-      if (bawah.length) {
-        const atasNama = Math.max(...bawah.map((t) => t.y1));
-        ruang = j.yBawah - atasNama;
-        // garis potong: di ruang kosong di atas nama, tidak boleh membelah tulisan mana pun di halaman ini
-        potong = NaN;
-        for (let y = atasNama + 0.5; y < j.yBawah; y += 0.5) {
-          if (!semua.some((t) => t.y0 < y && t.y1 > y)) { potong = y; break; }
-        }
-        terendah = Math.min(...semua.filter((t) => t.y1 <= potong).map((t) => t.y0));
-      }
-      let skala = 1, turun = 0;
-      for (let i = 0, sebelum = NaN; i < 50 && skala !== sebelum; i++) {
-        sebelum = skala;
-        turun = Math.max(0, Math.ceil((butuh + TATA_LETAK.celahNama) / skala - ruang));
-        const batas = [1, (H - butuh - batasBawah) / (H - j.yBawah)];
-        if (turun) batas.push((H - batasBawah) / (H - terendah + turun));
-        skala = Math.floor(Math.min(...batas) * 1000) / 1000;
-      }
-      if (turun && Number.isNaN(potong)) {
-        throw new Error(`tidak ada baris kosong di antara "Kepala," dan nama di halaman ${j.halaman + 1} untuk memberi tempat QR & gembok; tempel manual`);
-      }
-      if (skala < TATA_LETAK.skalaMin) {
-        throw new Error(`blok TTD di halaman ${j.halaman + 1} tidak muat untuk QR & gembok ukuran penuh; isi halaman perlu diperkecil ke ${Math.round(skala * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%); tempel manual`);
-      }
-      if (skala < 1 || turun) ubahHal.set(j.halaman, { skala, tx: F.x * (1 - skala), ty: H * (1 - skala), potong: turun ? potong : 0, turun });
+      const u = await rencanakan(j, teks[j.halaman], pdf.getPage(j.halaman).getHeight(), U, () => petaTinta(doc, j.halaman));
+      if (u) ubahHal.set(j.halaman, u);
     }
 
-    // 1) halaman yang berubah disusun ulang dari salinan halaman aslinya (teks tetap teks, bukan gambar):
-    //    bagian atas tetap di tempat, bagian bawah garis potong digeser turun, keduanya diperkecil bila perlu
+    // 1) halaman yang berubah disusun ulang di tempat dari salinan isinya sendiri (teks tetap teks, bukan gambar);
+    //    tautan, anotasi dan pengaturan halaman tetap ada
+    const N = PDFLib.PDFName.of;
     for (const [n, u] of ubahHal) {
-      const asli = pdf.getPage(n);
-      const { width: W, height: H } = asli.getSize();
-      const bagian = u.turun ? [{ bawah: u.potong, atas: H, turun: 0 }, { bawah: 0, atas: u.potong, turun: u.turun }] : [{ bawah: 0, atas: H, turun: 0 }];
-      const baru = pdf.insertPage(n, [W, H]);
+      const p = pdf.getPage(n);
+      const { x: mx, y: my, width: W, height: H } = p.getMediaBox();
+      if (mx || my || p.getRotation().angle) throw new Error(`ukuran atau putaran halaman ${n + 1} tidak biasa; tempel manual`);
+      const node = p.node.clone();
+      node.delete(N('Annots'));
+      const sumber = PDFLib.PDFPage.of(node, pdf.context.register(node), pdf);
+      const y = (bawah, d) => u.skala * (bawah - d) + u.ty;
+      const bagian = !u.turun ? [{ bawah: 0, atas: H, y: y(0, 0) }] : [
+        { bawah: 0, atas: u.potongBawah, y: y(0, 0) },
+        { bawah: u.potongBawah, atas: u.potong, y: y(u.potongBawah, u.turun) },
+        { bawah: u.potong, atas: H, y: y(u.potong, 0) },
+        ...(u.regang ? [{ bawah: u.potong - 0.5, atas: u.potong, y: y(u.potong, u.turun), regang: u.turun / 0.5 }] : []),
+      ];
+      p.node.set(N('Contents'), pdf.context.obj([]));
+      p.node.set(N('Resources'), pdf.context.obj({}));
       for (const b of bagian) {
-        const salinan = await pdf.embedPage(asli, { left: 0, bottom: b.bawah, right: W, top: b.atas });
-        baru.drawPage(salinan, { x: u.tx, y: u.skala * (b.bawah - b.turun) + u.ty, xScale: u.skala, yScale: u.skala });
+        const salinan = await pdf.embedPage(sumber, { left: 0, bottom: b.bawah, right: W, top: b.atas });
+        p.drawPage(salinan, { x: u.tx, y: b.y, xScale: u.skala, yScale: u.skala * (b.regang || 1) });
       }
-      pdf.removePage(n + 1);
+      const anotasi = p.node.Annots();
+      for (let i = 0; anotasi && i < anotasi.size(); i++) {
+        const a = anotasi.lookupMaybe(i, PDFLib.PDFDict);
+        const kotak = a && a.lookupMaybe(N('Rect'), PDFLib.PDFArray);
+        if (!kotak || kotak.size() !== 4) continue;
+        const [x0, y0, x1, y1] = [0, 1, 2, 3].map((k) => kotak.lookup(k, PDFLib.PDFNumber).asNumber());
+        const tengah = (y0 + y1) / 2, d = u.turun && tengah > u.potongBawah && tengah < u.potong ? u.turun : 0;
+        a.set(N('Rect'), pdf.context.obj([u.skala * x0 + u.tx, y(y0, d), u.skala * x1 + u.tx, y(y1, d)]));
+        a.delete(N('QuadPoints'));
+      }
     }
 
     // 2) hitung semua posisi, lalu pastikan tidak ada tulisan yang tertimpa sebelum menempel apa pun
     const geser = (t, n) => {
       const u = ubahHal.get(n);
       if (!u) return t;
-      const d = t.y1 <= u.potong ? u.turun : 0;
+      const tengah = (t.y0 + t.y1) / 2, d = u.turun && tengah > u.potongBawah && tengah < u.potong ? u.turun : 0;
       return { ...t, x0: u.skala * t.x0 + u.tx, x1: u.skala * t.x1 + u.tx, y0: u.skala * (t.y0 - d) + u.ty, y1: u.skala * (t.y1 - d) + u.ty };
     };
     const teksHal = (n) => teks[n].map((t) => geser(t, n));
@@ -373,6 +522,95 @@
       u.skala < 1 ? `isi halaman ${n + 1} diperkecil ke ${(u.skala * 100).toFixed(1)}% agar muat` : '',
     ]).filter(Boolean).join('; ');
     return { bytes: await pdf.save(), halaman, catatan };
+  }
+
+  // ---------- surat Word: ruang tanda tangan ditambah di dokumennya sendiri ----------
+  // Bila ruang di bawah "Kepala," kurang, paling rapi bila Word sendiri yang menata ulang suratnya (garis tabel, kaki
+  // halaman dan tautan tetap utuh, teks tidak tersalin dobel): paragraf kosong setinggi kekurangannya disisipkan tepat
+  // di bawah baris jabatan, lalu surat diubah ke PDF sekali lagi. Hasil itu dipakai hanya bila jumlah halaman dan letak
+  // tanda tangan tetap sama dan ruangnya kini cukup; bila tidak, PDF pertama yang dipakai (nama digeser di PDF).
+
+  const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+  // Kekurangan ruang (pt) di bawah tiap baris jabatan, atau null bila ada blok tanda tangan yang tidak wajar
+  async function kekuranganRuang(pdfBytes, g) {
+    const { doc, teks, jangkar } = await cariJangkar(pdfBytes);
+    try {
+      const perlu = TATA_LETAK.jarakBawahJangkar + Math.max(TATA_LETAK.qr.lebar, g.height) + TATA_LETAK.celahNama;
+      return {
+        halaman: doc.numPages,
+        jangkar: jangkar.map((j) => {
+          const { ruang } = ruangTtd(j, teks[j.halaman], g.width);
+          return { halaman: j.halaman, str: j.str, adaNama: ruang !== Infinity, kurang: Math.max(0, Math.ceil(perlu - ruang)) };
+        }),
+      };
+    } catch (e) {
+      return null;
+    } finally {
+      doc.destroy();
+    }
+  }
+
+  // Sisipkan paragraf kosong setinggi `tambah` pt di bawah paragraf baris jabatan (dicocokkan berurutan dengan teksnya)
+  async function sisipkanRuangDocx(docx, daftar) {
+    const zip = await JSZip.loadAsync(docx);
+    const berkas = zip.file('word/document.xml');
+    if (!berkas) return null;
+    const xml = new DOMParser().parseFromString(await berkas.async('string'), 'application/xml');
+    if (xml.getElementsByTagName('parsererror').length) return null;
+    const dalamKotakTeks = (p) => {
+      for (let e = p.parentNode; e; e = e.parentNode) if (e.localName === 'txbxContent') return true;
+      return false;
+    };
+    const paragraf = Array.from(xml.getElementsByTagNameNS(NS_W, 'p')).filter((p) => !dalamKotakTeks(p));
+    const rapat = (s) => s.replace(/\s+/g, '');
+    const teksP = (p) => rapat(Array.from(p.getElementsByTagNameNS(NS_W, 't')).map((t) => t.textContent).join(''));
+    const w = (nama, atribut = {}) => {
+      const e = xml.createElementNS(NS_W, 'w:' + nama);
+      for (const k in atribut) e.setAttributeNS(NS_W, 'w:' + k, atribut[k]);
+      return e;
+    };
+    let i = 0;
+    for (const s of daftar) {
+      while (i < paragraf.length && teksP(paragraf[i]) !== rapat(s.str)) i++;
+      if (i === paragraf.length) return null;
+      if (s.tambah > 0) {
+        const p = w('p'), pPr = w('pPr'), rPr = w('rPr');
+        pPr.appendChild(w('spacing', { before: '0', after: '0', line: String(Math.round(s.tambah * 20)), lineRule: 'exact' }));
+        rPr.appendChild(w('sz', { val: '2' }));
+        rPr.appendChild(w('szCs', { val: '2' }));
+        pPr.appendChild(rPr);
+        p.appendChild(pPr);
+        paragraf[i].parentNode.insertBefore(p, paragraf[i].nextSibling);
+      }
+      i++;
+    }
+    let isi = new XMLSerializer().serializeToString(xml);
+    if (!isi.startsWith('<?xml')) isi = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' + isi;
+    zip.file('word/document.xml', isi);
+    return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+  }
+
+  // { pdf, catatan }: PDF baru dari Word bila ruang tanda tangan berhasil ditambah di sana, selain itu PDF semula
+  async function beriRuangDocx(docx, pdfBytes, gembok, apa, kabar = () => {}) {
+    try {
+      const g = muat(await ukuranGambar(gembok), TATA_LETAK.gembok.lebar, TATA_LETAK.gembok.tinggi);
+      const awal = await kekuranganRuang(pdfBytes, g);
+      if (!awal || !awal.jangkar.some((j) => j.kurang > 0)) return { pdf: pdfBytes };
+      const tambah = (j) => (j.kurang ? j.kurang + 2 : 0);
+      const docxBaru = await sisipkanRuangDocx(docx, awal.jangkar.map((j) => ({ str: j.str, tambah: tambah(j) })));
+      if (!docxBaru) return { pdf: pdfBytes };
+      kabar();
+      const pdfBaru = await ubahBerkas(docxBaru, 'docx', apa);
+      const akhir = await kekuranganRuang(pdfBaru, g);
+      const cocok = akhir && akhir.halaman === awal.halaman && akhir.jangkar.length === awal.jangkar.length &&
+        akhir.jangkar.every((j, k) => j.halaman === awal.jangkar[k].halaman && j.adaNama === awal.jangkar[k].adaNama && j.kurang === 0);
+      if (!cocok) return { pdf: pdfBytes };
+      const rinci = awal.jangkar.filter((j) => j.kurang).map((j) => `halaman ${j.halaman + 1} +${tambah(j)} pt`).join(', ');
+      return { pdf: pdfBaru, catatan: `ruang tanda tangan ${apa} ditambah langsung di Word (${rinci})` };
+    } catch (e) {
+      return { pdf: pdfBytes };
+    }
   }
 
   // ---------- baca tabel ----------
@@ -656,7 +894,8 @@
   }
 
   // tempel ke semua baris yang sudah punya b.pdf, lalu unduh ZIP hasil akhir
-  async function tempelDanUnduh(baris, log) {
+  // word: surat Word baru saja diubah lewat helper, jadi helper bisa dipakai lagi untuk menambah ruang tanda tangan
+  async function tempelDanUnduh(baris, log, { word = false } = {}) {
     beriNama(baris);
     const zip = new JSZip(), laporan = [['no', 'perihal', 'file', 'halaman_ttd', 'status', 'lampiran', 'keterangan']];
     let ok = 0;
@@ -666,11 +905,24 @@
         continue;
       }
       try {
+        // Surat/lampiran Word yang ruang tanda tangannya sempit: ruangnya ditambah langsung di Word (beriRuangDocx)
+        const ketWord = [];
+        const kabar = (apa) => () => log(`Menambah ruang tanda tangan ${apa} ${b.no} di Word…`);
+        if (word && b.jenisSurat === 'docx' && b.berkas) {
+          const w = await beriRuangDocx(b.berkas, b.pdf, b.gembok, 'surat', kabar('surat'));
+          b.pdf = w.pdf;
+          if (w.catatan) ketWord.push(w.catatan);
+        }
+        if (word && b.lampiranStempel && b.lampiran && b.lampiran.jenis === 'docx') {
+          const w = await beriRuangDocx(b.lampiran.bytes, b.lampiranPdf, b.gembok, 'lampiran', kabar('lampiran'));
+          b.lampiranPdf = w.pdf;
+          if (w.catatan) ketWord.push(w.catatan);
+        }
         // Lampiran Word/Excel bagian dari surat: digabung dulu, lalu ikut diberi footer (+ QR/gembok di halaman "Kepala,").
         // Lampiran PDF/gambar (berkas pribadi: SK CPNS, SKP, …): digabung di belakang apa adanya, tanpa tempelan.
         const sumber = b.lampiranPdf && b.lampiranStempel ? await gabungPdf(b.pdf, b.lampiranPdf) : b.pdf;
         const r = await tempel(sumber, b.qr, b.gembok, b.footer);
-        let hasil = r.bytes, ket = r.catatan;
+        let hasil = r.bytes, ket = [...ketWord, r.catatan].filter(Boolean).join('; ');
         if (b.lampiranPdf && !b.lampiranStempel) {
           try {
             hasil = await gabungPdf(r.bytes, b.lampiranPdf);
@@ -772,7 +1024,7 @@
       const salah = await aset;
       if (salah instanceof Error) throw salah;
       if (!baris.some((b) => !b.gagal)) throw new Error('tidak ada surat yang berhasil disiapkan. Lihat alasannya di atas.');
-      await tempelDanUnduh(baris, log);
+      await tempelDanUnduh(baris, log, { word: true });
       return;
     }
 
