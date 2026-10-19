@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SUMAKER Barcode Massal
 // @namespace    bhp-medan
-// @version      0.4.0
+// @version      0.5.0
 // @description  Tempel QR, gembok (Logo SE) dan footer SUMAKER ke banyak surat sekaligus di halaman Tanda Tangan Elektronik.
 // @match        https://sumaker.kemenkum.go.id/main/dse*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js
@@ -41,7 +41,7 @@
     // Bila ruang antara "Kepala," dan nama sempit, QR + gembok diperkecil paling kecil sampai 50%.
     kecilMin: 0.5,
   };
-  const LINK = { surat: /^surat$/i, qr: /^qr\s*code$/i, gembok: /^logo\s*se$/i, footer: /^footer$/i };
+  const LINK = { surat: /^surat$/i, lampiran: /^lampiran$/i, qr: /^qr\s*code$/i, gembok: /^logo\s*se$/i, footer: /^footer$/i };
 
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -64,7 +64,8 @@
     }
     return 'lain';
   }
-  const COCOK = { surat: ['pdf', 'docx', 'doc', 'xlsx', 'xls'], pdf: ['pdf'], gambar: ['png', 'jpg'] };
+  const COCOK = { surat: ['pdf', 'docx', 'doc', 'xlsx', 'xls'], lampiran: ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'png', 'jpg'], pdf: ['pdf'], gambar: ['png', 'jpg'] };
+  const KANTOR = ['docx', 'doc', 'xlsx', 'xls'];
 
   // Tautan bisa langsung ke berkas, atau ke halaman yang menampilkan berkas (img/iframe/embed).
   async function ambil(url, harap, kedalaman = 0) {
@@ -82,6 +83,51 @@
     const src = el && (el.getAttribute('src') || el.getAttribute('data') || el.getAttribute('href'));
     if (!src) throw new Error(`${url} tidak berisi ${harap}`);
     return ambil(new URL(src, url).href, harap, kedalaman + 1);
+  }
+
+  // Lampiran terpisah (tombol "FILE LAMPIRAN" di SUMAKER). Tautan "Lampiran" ada di setiap baris, tetapi
+  // hanya sebagian surat yang benar-benar punya lampiran: tanpa berkas (404, kosong, halaman tanpa berkas) → null.
+  async function ambilLampiran(url) {
+    const res = await fetch(url, { credentials: 'include' });
+    if (res.status === 404 || res.status === 204) return null;
+    if (!res.ok) throw new Error(`lampiran → HTTP ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length < 16) return null;
+    const j = jenis(bytes);
+    if (COCOK.lampiran.includes(j)) return { bytes, jenis: j };
+    // halaman HTML: ikuti tautan/bingkai yang memang menunjuk ke lampiran (bukan ke file surat)
+    const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'text/html');
+    const calon = [...doc.querySelectorAll('a[href], iframe[src], embed[src], object[data]')]
+      .filter((el) => /lampiran/i.test((el.textContent || '') + ' ' + (el.getAttribute('href') || el.getAttribute('src') || el.getAttribute('data') || '')))
+      .map((el) => el.getAttribute('href') || el.getAttribute('src') || el.getAttribute('data'))
+      .filter((h) => h && !/^(javascript|#)/i.test(h));
+    for (const h of calon) {
+      const r = await fetch(new URL(h, url).href, { credentials: 'include' });
+      if (!r.ok) continue;
+      const isi = new Uint8Array(await r.arrayBuffer());
+      const jj = jenis(isi);
+      if (COCOK.lampiran.includes(jj)) return { bytes: isi, jenis: jj };
+    }
+    return null;
+  }
+
+  // gambar hasil pindai (JPG/PNG) → satu halaman A4, utuh di tengah
+  async function gambarKePdf(bytes, j) {
+    const pdf = await PDFLib.PDFDocument.create();
+    const img = j === 'png' ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+    const W = 595.28, H = 841.89, m = 20, s = Math.min((W - 2 * m) / img.width, (H - 2 * m) / img.height);
+    pdf.addPage([W, H]).drawImage(img, { x: (W - img.width * s) / 2, y: (H - img.height * s) / 2, width: img.width * s, height: img.height * s });
+    return pdf.save();
+  }
+
+  // gabungkan beberapa PDF berurutan
+  async function gabungPdf(...daftar) {
+    const out = await PDFLib.PDFDocument.create();
+    for (const bytes of daftar) {
+      const src = await PDFLib.PDFDocument.load(bytes);
+      for (const pg of await out.copyPages(src, src.getPageIndices())) out.addPage(pg);
+    }
+    return out.save();
   }
 
   // ---------- rapikan gambar JPG (latar jadi transparan) ----------
@@ -372,9 +418,9 @@
     } catch (e) { return null; }
   }
 
-  async function ubahLewatHelper(b) {
-    const r = await minta('POST', HELPER + '/ubah', { headers: { 'X-Jenis': b.jenisSurat, 'X-Barcode-Sumaker': '1', 'Content-Type': 'application/octet-stream' }, body: b.berkas });
-    if (r.status !== 200) throw new Error('surat ini tidak bisa dibuka Word/Excel (file rusak atau dikunci sandi?). Buka suratnya di Word/Excel, simpan ulang, lalu coba lagi. Rincian: ' + new TextDecoder().decode(r.bytes).slice(0, 200));
+  async function ubahBerkas(bytes, j, apa = 'surat') {
+    const r = await minta('POST', HELPER + '/ubah', { headers: { 'X-Jenis': j, 'X-Barcode-Sumaker': '1', 'Content-Type': 'application/octet-stream' }, body: bytes });
+    if (r.status !== 200) throw new Error(apa + ' ini tidak bisa dibuka Word/Excel (file rusak atau dikunci sandi?). Buka file-nya di Word/Excel, simpan ulang, lalu coba lagi. Rincian: ' + new TextDecoder().decode(r.bytes).slice(0, 200));
     if (jenis(r.bytes) !== 'pdf') throw new Error('hasil dari helper bukan PDF');
     return r.bytes;
   }
@@ -564,21 +610,36 @@
   // tempel ke semua baris yang sudah punya b.pdf, lalu unduh ZIP hasil akhir
   async function tempelDanUnduh(baris, log) {
     beriNama(baris);
-    const zip = new JSZip(), laporan = [['no', 'perihal', 'file', 'halaman_ttd', 'status', 'keterangan']];
+    const zip = new JSZip(), laporan = [['no', 'perihal', 'file', 'halaman_ttd', 'status', 'lampiran', 'keterangan']];
     let ok = 0;
     for (const b of baris) {
       if (b.gagal) {
-        laporan.push([b.no, b.perihal, '', '', 'GAGAL', b.gagal]);
+        laporan.push([b.no, b.perihal, '', '', 'GAGAL', b.ketLampiran || '-', b.gagal]);
         continue;
       }
       try {
-        const r = await tempel(b.pdf, b.qr, b.gembok, b.footer);
-        zip.file(b.nama, r.bytes);
-        laporan.push([b.no, b.perihal, b.nama, r.halaman, 'OK', r.catatan]);
-        if (r.catatan) log(`Catatan ${b.no}: ${r.catatan}.`);
+        // Lampiran Word/Excel bagian dari surat: digabung dulu, lalu ikut diberi footer (+ QR/gembok di halaman "Kepala,").
+        // Lampiran PDF/gambar (berkas pribadi: SK CPNS, SKP, …): digabung di belakang apa adanya, tanpa tempelan.
+        const sumber = b.lampiranPdf && b.lampiranStempel ? await gabungPdf(b.pdf, b.lampiranPdf) : b.pdf;
+        const r = await tempel(sumber, b.qr, b.gembok, b.footer);
+        let hasil = r.bytes, ket = r.catatan;
+        if (b.lampiranPdf && !b.lampiranStempel) {
+          try {
+            hasil = await gabungPdf(r.bytes, b.lampiranPdf);
+          } catch (e) {
+            const namaLampiran = b.nama.replace(/\.pdf$/, ' - LAMPIRAN.pdf');
+            zip.file(namaLampiran, b.lampiranPdf);
+            b.ketLampiran = 'TIDAK digabung (PDF terkunci/rusak) — diunggah terpisah: ' + namaLampiran;
+            ket = [ket, 'lampiran tidak bisa digabung, ada di file terpisah'].filter(Boolean).join('; ');
+          }
+        }
+        zip.file(b.nama, hasil);
+        laporan.push([b.no, b.perihal, b.nama, r.halaman, 'OK', b.ketLampiran || '-', ket]);
+        if (b.ketLampiran) log(`Lampiran ${b.no}: ${b.ketLampiran}.`);
+        if (ket) log(`Catatan ${b.no}: ${ket}.`);
         ok++;
       } catch (e) {
-        laporan.push([b.no, b.perihal, '', '', 'GAGAL', e.message]);
+        laporan.push([b.no, b.perihal, '', '', 'GAGAL', b.ketLampiran || '-', e.message]);
         log(`GAGAL ${b.no}: ${e.message}`);
       }
     }
@@ -595,7 +656,7 @@
     log(`${baris.length} surat dipilih.`);
     cekTautanLengkap(baris);
 
-    // 1) ambil berkas surat: PDF langsung dibarcode; Word/Excel diubah ke PDF dulu lewat Microsoft Office
+    // 1) ambil berkas surat (+ lampiran bila ada): PDF langsung dibarcode; Word/Excel diubah ke PDF lewat Microsoft Office
     const masalah = [];
     log(`Mengambil ${baris.length} surat…`);
     await serentak(baris, 4, async (b) => {
@@ -604,21 +665,54 @@
         b.berkas = r.bytes; b.jenisSurat = r.jenis;
       } catch (e) {
         masalah.push(`baris ${b.no}: ${e.message}`);
+        return;
+      }
+      if (!b.tautan.lampiran || b.tautan.lampiran === b.tautan.surat) return;
+      try {
+        const l = await ambilLampiran(b.tautan.lampiran);
+        // isi sama persis dengan surat → bukan lampiran tersendiri
+        if (l && (await sha(l.bytes)) !== (await sha(b.berkas))) b.lampiran = l;
+      } catch (e) {
+        b.gagal = 'lampiran gagal diambil (' + e.message + '); coba lagi agar lampiran tidak tertinggal';
       }
     });
     if (masalah.length) throw new Error('Dibatalkan, tidak ada surat yang diproses:\n' + masalah.join('\n'));
-    const office = baris.filter((b) => ['docx', 'doc', 'xlsx', 'xls'].includes(b.jenisSurat));
+    const adaLampiran = baris.filter((b) => b.lampiran);
+    if (adaLampiran.length) log(`${adaLampiran.length} surat punya lampiran: ${adaLampiran.map((b) => b.no).join(', ')}.`);
+    const perluHelper = baris.some((b) => KANTOR.includes(b.jenisSurat) || (b.lampiran && KANTOR.includes(b.lampiran.jenis)));
+    const office = baris.filter((b) => KANTOR.includes(b.jenisSurat));
     baris.filter((b) => b.jenisSurat === 'pdf').forEach((b) => (b.pdf = b.berkas));
 
-    // 2) Word/Excel → PDF lewat helper di komputer ini (Microsoft Word/Excel), lalu semuanya dibarcode sekaligus
-    if (office.length && await helperAktif()) {
+    // lampiran → PDF; Word/Excel ikut ditempeli (bagian surat), PDF/gambar digabung apa adanya
+    const siapkanLampiran = async (b, bisaUbah) => {
+      const l = b.lampiran;
+      if (!l) return;
+      if (KANTOR.includes(l.jenis)) {
+        if (!bisaUbah) throw new Error('lampiran Word/Excel perlu helper; pasang helper dulu (tombol biru)');
+        b.lampiranPdf = await ubahBerkas(l.bytes, l.jenis, 'lampiran');
+        b.lampiranStempel = true;
+        b.ketLampiran = 'Word/Excel: digabung, diberi footer (+ QR & gembok di halaman "Kepala,")';
+      } else {
+        b.lampiranPdf = l.jenis === 'pdf' ? l.bytes : await gambarKePdf(l.bytes, l.jenis);
+        b.lampiranStempel = false;
+        b.ketLampiran = `${l.jenis.toUpperCase()}: digabung di belakang apa adanya (tanpa footer/TTE)`;
+      }
+    };
+
+    // 2) semua surat sekaligus: Word/Excel → PDF lewat helper (satu per satu), bersamaan QR/gembok/footer diambil
+    if (!perluHelper || await helperAktif()) {
       let batal = false; // QR/gembok/footer bermasalah → seluruh proses batal, tidak perlu lanjut mengubah
       const ubah = (async () => {
-        for (const b of office) {
+        for (const b of baris) {
           if (batal) break;
-          log(`Mengubah ke PDF ${b.no}. ${b.perihal.slice(0, 50)}…`);
+          if (b.gagal) { log(`GAGAL ${b.no}: ${b.gagal}`); continue; }
           try {
-            b.pdf = await ubahLewatHelper(b);
+            if (KANTOR.includes(b.jenisSurat)) {
+              log(`Mengubah ke PDF ${b.no}. ${b.perihal.slice(0, 50)}…`);
+              b.pdf = await ubahBerkas(b.berkas, b.jenisSurat);
+            }
+            if (b.lampiran) log(`Menyiapkan lampiran ${b.no}…`);
+            await siapkanLampiran(b, true);
           } catch (e) {
             b.gagal = e.message; // surat lain tetap diproses; yang ini dicatat GAGAL di laporan
             log(`GAGAL ${b.no}: ${e.message}`);
@@ -629,7 +723,7 @@
       await ubah;
       const salah = await aset;
       if (salah instanceof Error) throw salah;
-      if (!baris.some((b) => !b.gagal)) throw new Error('tidak ada surat yang berhasil diubah ke PDF. Pastikan Microsoft Word/Excel terpasang di komputer ini.');
+      if (!baris.some((b) => !b.gagal)) throw new Error('tidak ada surat yang berhasil disiapkan. Lihat alasannya di atas.');
       await tempelDanUnduh(baris, log);
       return;
     }
@@ -650,6 +744,10 @@
       sorotLanjut(true);
     }
     const pdf = baris.filter((b) => b.jenisSurat === 'pdf');
+    for (const b of pdf) {
+      if (b.gagal) continue;
+      try { await siapkanLampiran(b, false); } catch (e) { b.gagal = e.message; }
+    }
     if (pdf.length) {
       await ambilAset(pdf, log);
       await tempelDanUnduh(pdf, log);
@@ -705,13 +803,19 @@
 
   // Diagnostik: tampilkan tautan baris pertama dan jenis berkasnya, untuk menyesuaikan skrip.
   async function cekTautan(log) {
-    const b = bacaBaris()[0];
+    const semua = bacaBaris();
+    const b = semua.find((x) => x.dipilih) || semua[0]; // surat yang dicentang, atau baris pertama
     if (!b) return log('Tidak ada baris surat.');
     log(`Baris ${b.no}: ${b.perihal.slice(0, 60)}`);
     for (const k of Object.keys(LINK)) {
       const url = b.tautan[k];
       if (!url) { log(`  ${k}: TIDAK DITEMUKAN`); continue; }
       try {
+        if (k === 'lampiran') {
+          const l = await ambilLampiran(url);
+          log(l ? `  lampiran: ADA (${l.jenis}, ${l.bytes.length} byte)` : '  lampiran: tidak ada');
+          continue;
+        }
         const r = await ambil(url, k === 'surat' ? 'surat' : 'gambar');
         log(`  ${k}: OK (${r.jenis}, ${r.bytes.length} byte)`);
       } catch (e) {

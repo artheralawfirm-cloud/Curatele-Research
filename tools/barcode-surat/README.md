@@ -28,6 +28,13 @@
    - Surat yang gagal diubah (mis. file rusak atau dikunci sandi) ditandai GAGAL di `laporan.csv`; surat lain tetap jadi.
 4. Unggah tiap PDF lewat **Kirim Surat** di baris yang perihalnya sama.
 
+**Surat dengan lampiran terpisah** (tombol *FILE LAMPIRAN* di SUMAKER) otomatis ikut digabung di belakang surat:
+- Lampiran **Word/Excel** (bagian dari surat): diubah ke PDF, diberi footer di setiap halaman, dan QR + gembok
+  di halaman yang punya "Kepala,".
+- Lampiran **PDF/JPG/PNG** (berkas pribadi: SK CPNS, SK PNS, SKP, …): digabung apa adanya, **tanpa** footer/TTE/barcode.
+- Lampiran PDF yang terkunci sandi tidak bisa digabung: surat tetap jadi, lampirannya ada di ZIP sebagai
+  `<perihal> - LAMPIRAN.pdf` untuk diunggah terpisah. Semua tercatat di kolom `lampiran` pada `laporan.csv`.
+
 **Helper Word/Excel** (`helper/`)
 - Berjalan tersembunyi dan hanya bisa dihubungi dari komputer itu sendiri (`127.0.0.1:48653`), hanya untuk halaman
   SUMAKER. Surat tidak dikirim ke mana pun; berkas sementara langsung dihapus. Makro di dokumen tidak dijalankan.
