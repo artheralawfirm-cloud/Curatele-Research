@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SUMAKER Barcode Massal
 // @namespace    bhp-medan
-// @version      0.5.1
+// @version      0.6.0
 // @description  Tempel QR, gembok (Logo SE) dan footer SUMAKER ke banyak surat sekaligus di halaman Tanda Tangan Elektronik.
 // @match        https://sumaker.kemenkum.go.id/main/dse*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js
@@ -35,11 +35,12 @@
     gembok: { lebar: 51, tinggi: 70 },
     footer: { x: 85, lebar: 468, tinggi: 21, jarakBawah: 36 },
     celahAtasFooter: 4,
+    // QR + gembok selalu ukuran penuh. Bila ruang antara "Kepala," dan nama sempit, nama (dan semua yang di
+    // bawahnya) digeser turun sampai ada celah ini di bawah QR + gembok.
+    celahNama: 4,
     // Bila blok TTD terlalu bawah, isi halaman itu diperkecil seragam (paling kecil 92%) agar muat,
-    // tanpa menggeser teks satu per satu dan tanpa menambah halaman.
+    // tanpa menambah halaman.
     skalaMin: 0.92,
-    // Bila ruang antara "Kepala," dan nama sempit, QR + gembok diperkecil paling kecil sampai 50%.
-    kecilMin: 0.5,
   };
   const LINK = { surat: /^surat$/i, lampiran: /^lampiran$/i, qr: /^qr\s*code$/i, gembok: /^logo\s*se$/i, footer: /^footer$/i };
 
@@ -271,57 +272,82 @@
   async function tempel(pdfBytes, qr, gembok, footer) {
     const { teks, jangkar } = await cariJangkar(pdfBytes);
     if (!jangkar.length) throw new Error('baris jabatan penanda tangan (mis. "Kepala,") tidak ditemukan; tempel manual');
-    let pdf = await PDFLib.PDFDocument.load(pdfBytes);
+    const pdf = await PDFLib.PDFDocument.load(pdfBytes);
     const jumlahHalaman = pdf.getPageCount();
     const ukuranGambar = async (aset) => { const i = await sematkan(await PDFLib.PDFDocument.create(), aset); return { width: i.width, height: i.height }; };
     const g = muat(await ukuranGambar(gembok), TATA_LETAK.gembok.lebar, TATA_LETAK.gembok.tinggi);
     const F = TATA_LETAK.footer, f = muat(await ukuranGambar(footer), F.lebar, F.tinggi);
     const q = TATA_LETAK.qr.lebar;
     const batasBawah = F.jarakBawah + f.height + TATA_LETAK.celahAtasFooter;
-    const skalaHal = new Map(); // halaman → { skala, tx, ty }
+    const butuh = TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height);
+    // halaman → { skala, tx, ty, potong, turun }: bagian di bawah garis `potong` digeser turun `turun` pt,
+    // lalu seluruh isi halaman diperkecil ke `skala` (titik tetap kiri-atas): (x, y) → skala*(x, y) + (tx, ty)
+    const ubahHal = new Map();
 
-    // 0) ruang tanda tangan sempit (mis. tabel Excel yang dikecilkan agar pas selebar halaman):
-    //    QR + gembok diperkecil secukupnya agar muat di antara "Kepala," dan tulisan di bawahnya (paling kecil 50%)
+    // 0) QR + gembok selalu ukuran penuh, seperti surat hasil SUMAKER. Hitung per halaman TTD:
+    //    - ruang antara "Kepala," dan nama kurang → nama (dan semua yang di bawahnya) digeser turun;
+    //    - blok TTD atau tulisan yang tergeser jadi terlalu dekat ke footer → isi halaman diperkecil seragam.
     for (const j of jangkar) {
-      const bawah = teks[j.halaman].filter((t) => t.y1 < j.yBawah && t.x0 < j.x + g.width && t.x1 > j.x);
-      const ruang = bawah.length ? j.yBawah - TATA_LETAK.jarakBawahJangkar - Math.max(...bawah.map((t) => t.y1)) - 2 : Infinity;
-      j.k = Math.min(1, ruang / g.height);
-      if (j.k < TATA_LETAK.kecilMin) {
-        throw new Error(`ruang tanda tangan di halaman ${j.halaman + 1} terlalu sempit untuk gembok (perlu diperkecil ke ${Math.round(j.k * 100)}%, batas ${TATA_LETAK.kecilMin * 100}%); tempel manual`);
-      }
-      j.butuh = TATA_LETAK.jarakBawahJangkar + Math.max(q, g.height) * j.k;
-    }
-
-    // 1) halaman yang blok TTD-nya terlalu dekat ke bawah: isi halaman diperkecil seragam (titik tetap kiri-atas)
-    for (const j of jangkar) {
-      const butuh = j.butuh;
-      if (j.yBawah - butuh >= batasBawah) continue;
       const H = pdf.getPage(j.halaman).getHeight();
-      let skala = (H - butuh - batasBawah) / (H - j.yBawah);
-      if (skala < TATA_LETAK.skalaMin) {
-        throw new Error(`blok TTD di halaman ${j.halaman + 1} terlalu dekat ke bawah; perlu diperkecil ke ${Math.round(skala * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%)`);
+      const semua = teks[j.halaman];
+      const kolomTtd = (t) => (t.x0 < TATA_LETAK.qr.x + q && t.x1 > TATA_LETAK.qr.x) || (t.x0 < j.x + g.width && t.x1 > j.x);
+      const bawah = semua.filter((t) => t.y1 < j.yBawah && kolomTtd(t));
+      let potong = 0, ruang = Infinity, terendah = Infinity;
+      if (bawah.length) {
+        const atasNama = Math.max(...bawah.map((t) => t.y1));
+        ruang = j.yBawah - atasNama;
+        // garis potong: di ruang kosong di atas nama, tidak boleh membelah tulisan mana pun di halaman ini
+        potong = NaN;
+        for (let y = atasNama + 0.5; y < j.yBawah; y += 0.5) {
+          if (!semua.some((t) => t.y0 < y && t.y1 > y)) { potong = y; break; }
+        }
+        terendah = Math.min(...semua.filter((t) => t.y1 <= potong).map((t) => t.y0));
       }
-      skala = Math.floor(skala * 1000) / 1000;
-      const tx = F.x * (1 - skala), ty = H * (1 - skala);
-      const p = pdf.getPage(j.halaman);
-      // translateContent lalu scaleContent → titik p menjadi skala*p + (tx, ty)
-      p.translateContent(tx / skala, ty / skala);
-      p.scaleContent(skala, skala);
-      skalaHal.set(j.halaman, { skala, tx, ty });
+      let skala = 1, turun = 0;
+      for (let i = 0, sebelum = NaN; i < 50 && skala !== sebelum; i++) {
+        sebelum = skala;
+        turun = Math.max(0, Math.ceil((butuh + TATA_LETAK.celahNama) / skala - ruang));
+        const batas = [1, (H - butuh - batasBawah) / (H - j.yBawah)];
+        if (turun) batas.push((H - batasBawah) / (H - terendah + turun));
+        skala = Math.floor(Math.min(...batas) * 1000) / 1000;
+      }
+      if (turun && Number.isNaN(potong)) {
+        throw new Error(`tidak ada baris kosong di antara "Kepala," dan nama di halaman ${j.halaman + 1} untuk memberi tempat QR & gembok; tempel manual`);
+      }
+      if (skala < TATA_LETAK.skalaMin) {
+        throw new Error(`blok TTD di halaman ${j.halaman + 1} tidak muat untuk QR & gembok ukuran penuh; isi halaman perlu diperkecil ke ${Math.round(skala * 100)}% (batas ${TATA_LETAK.skalaMin * 100}%); tempel manual`);
+      }
+      if (skala < 1 || turun) ubahHal.set(j.halaman, { skala, tx: F.x * (1 - skala), ty: H * (1 - skala), potong: turun ? potong : 0, turun });
     }
-    // simpan & muat ulang, supaya tempelan jadi lapisan terpisah di luar transformasi skala
-    if (skalaHal.size) pdf = await PDFLib.PDFDocument.load(await pdf.save());
+
+    // 1) halaman yang berubah disusun ulang dari salinan halaman aslinya (teks tetap teks, bukan gambar):
+    //    bagian atas tetap di tempat, bagian bawah garis potong digeser turun, keduanya diperkecil bila perlu
+    for (const [n, u] of ubahHal) {
+      const asli = pdf.getPage(n);
+      const { width: W, height: H } = asli.getSize();
+      const bagian = u.turun ? [{ bawah: u.potong, atas: H, turun: 0 }, { bawah: 0, atas: u.potong, turun: u.turun }] : [{ bawah: 0, atas: H, turun: 0 }];
+      const baru = pdf.insertPage(n, [W, H]);
+      for (const b of bagian) {
+        const salinan = await pdf.embedPage(asli, { left: 0, bottom: b.bawah, right: W, top: b.atas });
+        baru.drawPage(salinan, { x: u.tx, y: u.skala * (b.bawah - b.turun) + u.ty, xScale: u.skala, yScale: u.skala });
+      }
+      pdf.removePage(n + 1);
+    }
 
     // 2) hitung semua posisi, lalu pastikan tidak ada tulisan yang tertimpa sebelum menempel apa pun
-    const geser = (t, n) => { const s = skalaHal.get(n); return s ? { ...t, x0: s.skala * t.x0 + s.tx, x1: s.skala * t.x1 + s.tx, y0: s.skala * t.y0 + s.ty, y1: s.skala * t.y1 + s.ty } : t; };
+    const geser = (t, n) => {
+      const u = ubahHal.get(n);
+      if (!u) return t;
+      const d = t.y1 <= u.potong ? u.turun : 0;
+      return { ...t, x0: u.skala * t.x0 + u.tx, x1: u.skala * t.x1 + u.tx, y0: u.skala * (t.y0 - d) + u.ty, y1: u.skala * (t.y1 - d) + u.ty };
+    };
     const teksHal = (n) => teks[n].map((t) => geser(t, n));
     const rencana = jangkar.map((j) => {
-      const s = skalaHal.get(j.halaman) || { skala: 1, tx: 0, ty: 0 };
-      const x = s.skala * j.x + s.tx, atas = s.skala * j.yBawah + s.ty - TATA_LETAK.jarakBawahJangkar;
-      const qq = q * j.k, gw = g.width * j.k, gh = g.height * j.k;
-      if (x + gw > pdf.getPage(j.halaman).getWidth()) throw new Error(`gembok keluar dari tepi kanan halaman ${j.halaman + 1}`);
-      const kQr = { x0: TATA_LETAK.qr.x, x1: TATA_LETAK.qr.x + qq, y0: atas - qq, y1: atas };
-      const kGembok = { x0: x, x1: x + gw, y0: atas - gh, y1: atas };
+      const u = ubahHal.get(j.halaman) || { skala: 1, tx: 0, ty: 0 };
+      const x = u.skala * j.x + u.tx, atas = u.skala * j.yBawah + u.ty - TATA_LETAK.jarakBawahJangkar;
+      if (x + g.width > pdf.getPage(j.halaman).getWidth()) throw new Error(`gembok keluar dari tepi kanan halaman ${j.halaman + 1}`);
+      const kQr = { x0: TATA_LETAK.qr.x, x1: TATA_LETAK.qr.x + q, y0: atas - q, y1: atas };
+      const kGembok = { x0: x, x1: x + g.width, y0: atas - g.height, y1: atas };
       cekTabrakan(kQr, teksHal(j.halaman), 'QR code', j.halaman + 1);
       cekTabrakan(kGembok, teksHal(j.halaman), 'Gembok', j.halaman + 1);
       return { j, kQr, kGembok };
@@ -342,8 +368,10 @@
     // hanya menggambar di halaman yang ada; jumlah halaman tidak boleh berubah
     if (pdf.getPageCount() !== jumlahHalaman) throw new Error('jumlah halaman berubah');
     const halaman = jangkar.map((j) => j.halaman + 1).join(' & ');
-    const catatan = [...[...skalaHal].map(([n, s]) => `isi halaman ${n + 1} diperkecil ke ${(s.skala * 100).toFixed(1)}% agar muat`),
-      ...jangkar.filter((j) => j.k < 1).map((j) => `QR & gembok halaman ${j.halaman + 1} diperkecil ke ${Math.round(j.k * 100)}% (ruang TTD sempit)`)].join('; ');
+    const catatan = [...ubahHal].flatMap(([n, u]) => [
+      u.turun ? `nama penanda tangan di halaman ${n + 1} digeser turun ${u.turun} pt agar QR & gembok muat ukuran penuh` : '',
+      u.skala < 1 ? `isi halaman ${n + 1} diperkecil ke ${(u.skala * 100).toFixed(1)}% agar muat` : '',
+    ]).filter(Boolean).join('; ');
     return { bytes: await pdf.save(), halaman, catatan };
   }
 
