@@ -499,8 +499,8 @@
       zip.file('ubah-ke-pdf.ps1', PS1);
       zip.file('BACA-SAYA.txt', BACA);
       unduhZip(await zip.generateAsync({ type: 'blob' }), `surat-word-excel-${hariIni()}.zip`);
-      log(`\n${office.length} surat berupa Word/Excel → sudah diunduh sebagai surat-word-excel-${hariIni()}.zip.`);
-      log('Langkah berikutnya:\n 1) Ekstrak ZIP itu.\n 2) Klik dua kali UBAH-KE-PDF.bat (Microsoft Word/Excel mengubah semuanya ke PDF).\n 3) Klik tombol "Lanjut: tempel ke PDF" di kotak ini, pilih semua PDF di folder pdf-hasil.\n');
+      log(`\n✅ ${office.length} surat Word/Excel sudah diunduh: surat-word-excel-${hariIni()}.zip`);
+      sorotLanjut(true);
     }
 
     // 3) surat yang sudah PDF: langsung dibarcode
@@ -512,6 +512,26 @@
   }
 
   // Tahap 2: PDF hasil Word dipilih dari komputer → dicocokkan ke barisnya lewat kode [#........]
+  // tombol "Lanjut" disorot hijau selama ada surat Word/Excel yang menunggu PDF-nya
+  const PETUNJUK_AWAL = '<b>1.</b> Centang surat di kolom NO.<br><b>2.</b> Klik tombol kuning.<br>' +
+    '<span style="color:#666">Surat Word/Excel? Ikuti petunjuk yang muncul di kotak ini.</span>';
+  const PETUNJUK_WORD = '<div style="background:#e6f4ea;border:1px solid #188038;border-radius:6px;padding:8px;font-size:13px;line-height:1.5">' +
+    '<b>Surat Word/Excel sudah diunduh (ZIP). Sekarang:</b><br>' +
+    '<b>①</b> Buka folder <b>Unduhan</b>, klik kanan file <b>surat-word-excel-….zip</b> → <b>Extract All / Ekstrak Semua</b>.<br>' +
+    '<b>②</b> Di folder hasil ekstrak, klik dua kali <b>UBAH-KE-PDF</b>. Tunggu sampai tertulis <b>Selesai</b>.<br>' +
+    '<b>③</b> Klik tombol <b style="color:#188038">HIJAU</b> di bawah, pilih <b>semua</b> PDF di folder <b>pdf-hasil</b> (<b>Ctrl+A</b> → <b>Open</b>).</div>';
+
+  function sorotLanjut(nyala) {
+    const t = document.querySelector('[data-a="lanjut"]');
+    const pet = document.querySelector('.bm-petunjuk');
+    if (pet) pet.innerHTML = nyala ? PETUNJUK_WORD : PETUNJUK_AWAL;
+    if (!t) return;
+    Object.assign(t.style, nyala
+      ? { background: '#188038', color: '#fff', border: '0', fontWeight: 'bold', padding: '9px', animation: 'bmkedip 1.2s infinite' }
+      : { background: '#fff', color: '#1a73e8', border: '1px solid #1a73e8', fontWeight: 'normal', padding: '6px', animation: 'none' });
+    t.textContent = nyala ? '③ Klik di sini: pilih semua PDF di folder pdf-hasil' : 'Lanjut: tempel ke PDF (hasil Word/Excel)';
+  }
+
   async function prosesDariPdf(files, log) {
     const semua = bacaBaris();
     const peta = new Map();
@@ -520,8 +540,8 @@
     for (const f of files) {
       const m = f.name.match(/\[#([0-9a-f]{8})\]\.pdf$/i);
       const b = m && peta.get(m[1].toLowerCase());
-      if (!m) { masalah.push(`${f.name}: bukan PDF hasil UBAH-KE-PDF (kode [#…] di nama file tidak ada / nama file diubah)`); continue; }
-      if (!b) { masalah.push(`${f.name}: suratnya tidak ada di tabel halaman ini (tampilkan semua surat dengan "Show", lalu coba lagi)`); continue; }
+      if (!m) { masalah.push(`${f.name}: bukan dari folder pdf-hasil, atau nama filenya diubah (pilih file di folder pdf-hasil, jangan diganti namanya)`); continue; }
+      if (!b) { masalah.push(`${f.name}: suratnya tidak terlihat di tabel (ubah "Show" jadi 100 supaya semua surat tampil, lalu klik lagi)`); continue; }
       if (baris.includes(b)) { masalah.push(`${f.name}: surat yang sama dipilih dua kali`); continue; }
       const bytes = new Uint8Array(await f.arrayBuffer());
       if (jenis(bytes) !== 'pdf') { masalah.push(`${f.name}: bukan file PDF`); continue; }
@@ -531,6 +551,7 @@
     if (masalah.length) throw new Error('Dibatalkan, tidak ada surat yang diproses:\n' + masalah.join('\n'));
     if (!baris.length) throw new Error('belum ada file PDF yang dipilih');
     baris.sort((a, b) => semua.indexOf(a) - semua.indexOf(b)); // urutan tabel → nama "(2)" konsisten
+    sorotLanjut(false);
     log(`${baris.length} PDF hasil Word/Excel cocok dengan suratnya di tabel.`);
     cekTautanLengkap(baris);
     await ambilAset(baris, log);
@@ -584,11 +605,13 @@
 
   function panel() {
     const box = document.createElement('div');
-    box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;width:360px;background:#fff;color:#222;' +
+    box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;width:380px;background:#fff;color:#222;' +
       'border:2px solid #f5c400;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);font:13px sans-serif;padding:10px';
-    box.innerHTML = '<b>Barcode Massal</b><div style="font-size:12px;color:#555;margin-top:2px">Centang surat di kolom NO, lalu klik tombol kuning.</div><div style="margin:8px 0;display:flex;gap:6px">' +
+    box.innerHTML = '<b>Barcode Massal</b><div class="bm-petunjuk" style="font-size:12px;color:#333;margin-top:4px;line-height:1.45">' +
+      PETUNJUK_AWAL + '</div><div style="margin:8px 0;display:flex;gap:6px">' +
       '<button data-a="proses" style="flex:1;padding:6px;background:#f5c400;border:0;border-radius:4px;font-weight:bold;cursor:pointer">Centang surat dulu</button>' +
       '<button data-a="cek" style="padding:6px;border:1px solid #999;border-radius:4px;background:#fff;cursor:pointer">Cek tautan</button></div>' +
+      '<style>@keyframes bmkedip{50%{box-shadow:0 0 0 5px rgba(24,128,56,.35)}}</style>' +
       '<button data-a="lanjut" style="width:100%;margin-bottom:8px;padding:6px;border:1px solid #1a73e8;color:#1a73e8;border-radius:4px;background:#fff;cursor:pointer">Lanjut: tempel ke PDF (hasil Word/Excel)</button>' +
       '<input type="file" accept=".pdf,application/pdf" multiple style="display:none">' +
       '<pre style="max-height:220px;overflow:auto;white-space:pre-wrap;margin:0;font-size:12px"></pre>';
