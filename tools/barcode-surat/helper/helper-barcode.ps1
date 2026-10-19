@@ -9,7 +9,7 @@ $PORT = 48653
 $IZIN_ORIGIN = 'https://sumaker.kemenkum.go.id'
 $MAKS_BYTE = 60MB
 $DIAM_DETIK = 120   # Word/Excel ditutup bila tidak dipakai selama ini
-$VERSI = '1'
+$VERSI = '2'
 
 $kerja = Join-Path $env:TEMP 'barcode-sumaker'
 New-Item -ItemType Directory -Force -Path $kerja | Out-Null
