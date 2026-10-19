@@ -13,13 +13,18 @@
 
 **Pakai**
 1. Atur *Show entries* supaya surat yang mau dibarcode tampil di halaman.
-2. Pilih suratnya lewat kotak centang di kolom **NO**:
-   - satu atau beberapa surat → centang baris yang diinginkan;
-   - semua surat (massal) → centang kotak di judul kolom **NO**.
-3. Klik **Barcode surat terpilih (N)**. Hasilnya `surat-barcode-<tanggal>.zip`:
-   - satu PDF per surat, **nama file = Perihal Surat** (perihal kembar diberi akhiran `(2)`, `(3)`, …);
-   - `laporan.csv`: status OK/GAGAL tiap surat.
-4. Unggah tiap PDF lewat **Kirim Surat** di baris yang perihalnya sama.
+2. Pilih suratnya lewat kotak centang di kolom **NO** (satu, beberapa, atau semua lewat kotak di judul kolom NO).
+3. Klik **Barcode surat terpilih (N)**. Plugin melihat jenis berkas tiap surat:
+   - **Word (.docx/.doc) dan Excel (.xlsx/.xls)** — jalur utama. Terunduh `surat-word-excel-<tanggal>.zip` berisi
+     folder `surat-asli`, `UBAH-KE-PDF.bat`, `ubah-ke-pdf.ps1`, `BACA-SAYA.txt`.
+     1. Ekstrak ZIP, klik dua kali **UBAH-KE-PDF.bat**. Microsoft Word/Excel di komputer itu mengubah semua surat
+        ke PDF (folder `pdf-hasil`), tampilannya persis seperti dibuka di Word/Excel. Sheet Excel diatur pas satu
+        lebar halaman (mendatar bila tabelnya lebar) supaya rapi. Tanpa Microsoft Office, LibreOffice dipakai bila ada.
+     2. Kembali ke SUMAKER, klik **Lanjut: tempel ke PDF**, pilih **semua** PDF di folder `pdf-hasil`.
+        Kode `[#xxxxxxxx]` di nama file mencocokkan tiap PDF dengan barisnya sendiri — **jangan ubah nama file**.
+   - **PDF** — langsung dibarcode.
+4. Hasil akhir: `surat-barcode-<tanggal>.zip` berisi satu PDF per surat (**nama file = Perihal Surat**) dan `laporan.csv`.
+5. Unggah tiap PDF lewat **Kirim Surat** di baris yang perihalnya sama.
 
 **Pengaman**
 - QR, gembok dan footer diambil dari baris yang sama dengan suratnya. QR identik di dua baris,
@@ -30,6 +35,8 @@
 - Footer ditempel di bagian bawah **semua halaman** dokumen (8 halaman → 8 footer).
 - **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
   dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
+- Kalau ruang antara "Kepala," dan nama sempit (mis. tabel Excel yang dikecilkan), QR + gembok **diperkecil
+  secukupnya** (paling kecil 50%) supaya pas; dicatat di `laporan.csv`. Lebih sempit lagi → GAGAL.
 - Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
   supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
 - Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).
