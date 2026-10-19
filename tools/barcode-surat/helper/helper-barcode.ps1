@@ -171,7 +171,15 @@ function Layani($klien) {
       $keluar = Join-Path $kerja ($id + '.pdf')
       [System.IO.File]::WriteAllBytes($masuk, $req.isi)
       try {
-        $pengubah = Ubah-KePdf $masuk $keluar ($jenis -like 'xls*')
+        try {
+          $pengubah = Ubah-KePdf $masuk $keluar ($jenis -like 'xls*')
+        } catch {
+          # Word/Excel bisa macet atau tertutup sendiri: buka yang baru lalu coba sekali lagi
+          Tulis ('coba ulang: ' + $_.Exception.Message)
+          Tutup-Office
+          Remove-Item -LiteralPath $keluar -Force -ErrorAction SilentlyContinue
+          $pengubah = Ubah-KePdf $masuk $keluar ($jenis -like 'xls*')
+        }
         $pdf = [System.IO.File]::ReadAllBytes($keluar)
         Tulis ('OK ' + $jenis + ' ' + $req.isi.Length + ' byte -> ' + $pdf.Length + ' byte (' + $pengubah + ')')
         Kirim $aliran 200 'OK' 'application/pdf' $pdf $origin
