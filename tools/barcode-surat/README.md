@@ -56,10 +56,10 @@
 - Footer ditempel di bagian bawah **semua halaman** dokumen (8 halaman → 8 footer).
 - **Tidak pernah menimpa tulisan**: kalau QR/gembok/footer akan mengenai teks apa pun (mis. nama terlalu dekat
   dengan "Kepala,"), surat itu GAGAL dengan alasan jelas — tidak ditempel asal.
-- Kalau ruang antara "Kepala," dan nama sempit (mis. tabel Excel yang dikecilkan), QR + gembok **diperkecil
-  secukupnya** (paling kecil 50%) supaya pas; dicatat di `laporan.csv`. Lebih sempit lagi → GAGAL.
-- Kalau blok tanda tangan terlalu dekat ke footer, **isi halaman itu diperkecil seragam** (paling kecil 92%)
-  supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
+- QR + gembok **selalu ukuran penuh**, seperti surat hasil SUMAKER. Kalau ruang antara "Kepala," dan nama
+  kurang, **nama (dan semua yang di bawahnya) digeser turun** secukupnya; dicatat di `laporan.csv`.
+- Kalau blok tanda tangan (atau nama yang digeser) jadi terlalu dekat ke footer, **isi halaman itu diperkecil
+  seragam** (paling kecil 92%) supaya muat; dicatat di `laporan.csv`. Lebih dari itu → GAGAL, rapikan manual.
 - Hanya menempel di halaman yang sudah ada: **tidak pernah menambah halaman** (dicek tiap surat).
 - Gembok & footer JPG dari SUMAKER otomatis dibuat transparan (tidak ada kotak abu-abu).
 - Semua proses terjadi di komputer Anda sendiri (browser + helper); tidak ada data yang dikirim ke luar SUMAKER.
