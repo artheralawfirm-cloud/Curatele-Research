@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SUMAKER Barcode Massal
 // @namespace    bhp-medan
-// @version      0.5.0
+// @version      0.5.1
 // @description  Tempel QR, gembok (Logo SE) dan footer SUMAKER ke banyak surat sekaligus di halaman Tanda Tangan Elektronik.
 // @match        https://sumaker.kemenkum.go.id/main/dse*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js
@@ -206,6 +206,26 @@
     return { x0: it.transform[4], x1: it.transform[4] + (it.width || 0), y0: it.transform[5] - 0.25 * h, y1: it.transform[5] + 0.8 * h, str: it.str.trim() };
   }
 
+  // Word sering memecah satu baris menjadi beberapa potongan teks (mis. "Kepala" dan "," terpisah karena
+  // formatnya beda). Potongan yang sebaris dan berdempetan disambung dulu sebelum dicocokkan ke pola jangkar.
+  // Potongan yang berjauhan (mis. kolom "Tembusan" dan kolom tanda tangan) tetap terpisah.
+  function barisTeks(kotak) {
+    const urut = [...kotak].sort((a, b) => (Math.abs(a.y0 - b.y0) > 2 ? b.y0 - a.y0 : a.x0 - b.x0));
+    const hasil = [];
+    for (const k of urut) {
+      const h = (k.y1 - k.y0) / 1.05;
+      const akhir = hasil[hasil.length - 1];
+      const celah = akhir ? k.x0 - akhir.x1 : Infinity;
+      if (akhir && Math.abs(akhir.y0 - k.y0) <= 0.4 * h && celah > -1 && celah < 1.5 * h) {
+        akhir.str += (celah > 0.15 * h ? ' ' : '') + k.str;
+        akhir.x1 = k.x1; akhir.y0 = Math.min(akhir.y0, k.y0); akhir.y1 = Math.max(akhir.y1, k.y1);
+      } else {
+        hasil.push({ ...k });
+      }
+    }
+    return hasil;
+  }
+
   // Setiap halaman yang punya blok tanda tangan (surat, lampiran, SPPD, …) mendapat QR + gembok sendiri,
   // di bawah baris jabatan paling bawah pada halaman itu.
   async function cariJangkar(pdfBytes) {
@@ -221,7 +241,7 @@
         return b.length ? k.y0 - Math.max(...b.map((t) => t.y1)) : Infinity;
       };
       const judul = (k) => k.str === k.str.toUpperCase() && ruangBawah(k) < 20;
-      const kandidat = teks[n - 1].filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str) && !judul(k));
+      const kandidat = barisTeks(teks[n - 1]).filter((k) => k.str.length <= 70 && POLA_JANGKAR.test(k.str) && !judul(k));
       if (kandidat.length) {
         const hit = kandidat.reduce((a, b) => (b.y0 < a.y0 ? b : a));
         jangkar.push({ halaman: n - 1, x: hit.x0, yBawah: hit.y0 });
